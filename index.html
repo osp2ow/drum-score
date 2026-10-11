@@ -694,11 +694,7 @@ function voiceLayout(m,v,ti){
     else{close();if(beamable(it))cur.push(it)}
   }
   close();
-  if(!ti.compound&&ti.bf===0&&(ti.beats===4||ti.beats===2)){
-    const whole=b=>{const its=out.filter(i=>i.b===b);const g=groups.find(g=>g[0].b===b);
-      return g&&g.length===its.length&&its.every(i=>i.k==='n'&&i.dur.flags===1)&&its[0].s===0?g:null};
-    for(const p of ti.beats===4?[0,2]:[0]){const g1=whole(p),g2=whole(p+1);if(g1&&g2&&!!g1[0].down===!!g2[0].down){groups.splice(groups.indexOf(g2),1);g1.push(...g2)}}
-  }
+  // 8th notes are always beamed in pairs (one beat), never four together
   return {mrest:false,items:out,groups,tuplets:beats.filter(bt=>bt.tup&&!consumed.has(bt.b)).map(bt=>({b:bt.b,D:bt.tup}))};
 }
 
