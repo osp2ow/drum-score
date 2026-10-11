@@ -110,12 +110,16 @@ h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.
 .doctab span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .doctab button{border:0;background:none;cursor:pointer;border-radius:4px;width:22px;height:22px;font-size:15px;line-height:1;color:var(--muted)}
 .doctab button:hover{background:var(--chrome-2);color:var(--ink)}
+.eldel{position:absolute;z-index:6;white-space:nowrap;width:max-content;font:600 12px/1 inherit;font-family:inherit;padding:5px 9px;border-radius:6px;border:1px solid var(--danger);background:var(--surface);color:var(--danger);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.eldel:hover{background:var(--danger);color:var(--surface)}
 .canvas{position:relative;overflow:auto;background:var(--desk);padding:24px 16px 36px;min-width:0}
-.pages{display:flex;flex-direction:column;align-items:center;gap:26px;width:max-content;min-width:100%;padding:0 70vw 45vh;box-sizing:content-box}
+.pages{display:flex;flex-direction:row;align-items:flex-start;gap:26px;width:max-content;min-width:100%;padding:0 70vw 45vh;box-sizing:content-box}
 .page{display:block;background:var(--paper);box-shadow:var(--shadow);user-select:none;-webkit-user-select:none;touch-action:manipulation}
 .canvas.inputting .page{cursor:crosshair}
 .canvas.panning,.canvas.panning *{cursor:grabbing!important;user-select:none}
-.lyric-input{position:absolute;z-index:5;border:1.5px solid var(--sel);background:var(--paper);color:var(--paper-ink);border-radius:3px;text-align:center;font-family:var(--score);padding:0 4px;min-width:3em;transform:translate(-50%,-100%);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.lyric-input{position:absolute;z-index:5;border:none;outline:1px dashed var(--sel);outline-offset:1px;background:var(--paper);color:var(--paper-ink);border-radius:1px;padding:0;margin:0;box-sizing:border-box;box-shadow:none;transform:none;min-width:0}
+.lyric-input::-webkit-inner-spin-button,.lyric-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.lyric-input[type=number]{-moz-appearance:textfield}
 .drop-veil{position:absolute;inset:10px;border:2px dashed var(--accent);border-radius:12px;background:color-mix(in srgb,var(--accent-weak) 80%,transparent);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px;color:var(--accent);z-index:8;pointer-events:none}
 /* percussion panel */
 .perc{background:var(--chrome);border-top:1px solid var(--line)}
@@ -138,6 +142,8 @@ h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.
 .status #stLeft{overflow:hidden;text-overflow:ellipsis}
 .zoom{display:flex;align-items:center;gap:2px}
 .zoom .ib{min-height:24px;padding:1px 7px}
+.zpct{display:flex;align-items:center;gap:1px;font-size:12px;color:var(--muted)}
+.zpct input{width:56px;text-align:right;border:1px solid var(--line);border-radius:5px;padding:2px 4px;background:var(--surface);color:var(--ink);font:inherit;font-variant-numeric:tabular-nums}
 .zlabel{font-family:var(--mono);font-size:12px;min-width:52px}
 /* capture */
 .drop{border:1.5px dashed color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:10px;padding:14px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;background:var(--surface)}
@@ -233,7 +239,8 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .ghost .mu{fill:var(--sel);opacity:.55}
 .ghost .ln{stroke:var(--sel);opacity:.55}
 .pad .ic svg{width:15px;height:15px;vertical-align:middle}
-.t-lyr{cursor:text}
+.t-lyr{cursor:pointer}
+.editing{visibility:hidden}
 .paper-bg{fill:var(--paper)}
 .frame{fill:none;stroke:#9aa0aa;stroke-width:.1;stroke-dasharray:.6 .4}
 .brk{fill:none;stroke:var(--brk);stroke-width:.2}
@@ -399,6 +406,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
           <input id="lyricInput" class="lyric-input" hidden autocomplete="off" spellcheck="false" aria-label="가사 입력">
           <input id="hdrInput" class="lyric-input" hidden autocomplete="off" spellcheck="false" aria-label="악보 머리글 입력">
           <input id="tempoInput" class="lyric-input" type="number" min="20" max="320" inputmode="numeric" hidden aria-label="템포 (분당 박 수)">
+          <button class="eldel" id="elDel" hidden title="선택한 기호 지우기 (Delete)">지우기</button>
           <div class="drop-veil" id="dropVeil" hidden>놓으면 악보로 바꿔서 맨 뒤에 붙여요</div>
         </div>
         <div class="perc">
@@ -407,7 +415,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
         </div>
       </div>
     </div>
-    <footer class="status"><span id="stLeft"></span><div class="zoom"><span id="stRight"></span><button class="ib" id="zOut" aria-label="축소">&minus;</button><button class="ib zlabel" id="zFit" title="페이지 너비에 맞추기">100%</button><button class="ib" id="zIn" aria-label="확대">+</button></div></footer>
+    <footer class="status"><span id="stLeft"></span><div class="zoom"><span id="stRight"></span><button class="ib" id="zOut" aria-label="축소">&minus;</button><label class="zpct"><input id="zPct" list="zList" inputmode="numeric" autocomplete="off" aria-label="보기 비율 (%)" value="100"><span>%</span></label><datalist id="zList"><option value="50"><option value="75"><option value="100"><option value="120"><option value="150"><option value="200"></datalist><button class="ib" id="zFit" title="화면에 맞추기">맞춤</button><button class="ib" id="zIn" aria-label="확대">+</button></div></footer>
   </section>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -530,13 +538,14 @@ function normMeasure(m,ti){
       if(n.g==='flam'||n.g==='drag')o.g=n.g;
       if(n.tr)o.tr=1;
       if(n.ar)o.ar=1;
+      if(n.na)o.na=1;
       if(Number.isFinite(+n.dx)&&n.dx)o.dx=Math.max(-12,Math.min(12,+n.dx));
       if(+n.du>0&&+n.du<=6)o.du=+n.du;
       const nof=cleanOff(n.off);if(nof)o.off=nof;
       return o})
     .filter(n=>n.i&&Number.isInteger(n.b)&&n.b>=0&&n.b<ti.beats&&Number.isInteger(n.s)&&n.s>=0&&n.s<divs[n.b])
     .filter(n=>{const k=n.b+'|'+n.s+'|'+n.i;if(seen.has(k))return false;seen.add(k);return true});
-  const lyrics=(Array.isArray(m.lyrics)?m.lyrics:[]).map(l=>({b:+l.b,s:+l.s,d:+l.d,t:String(l.t||'').trim().slice(0,24)}))
+  const lyrics=(Array.isArray(m.lyrics)?m.lyrics:[]).map(l=>{const o={b:+l.b,s:+l.s,d:+l.d,t:String(l.t||'').trim().slice(0,24)};if(Number.isFinite(+l.dx)&&+l.dx)o.dx=Math.max(-12,Math.min(12,+l.dx));return o})
     .filter(l=>l.t&&Number.isInteger(l.b)&&l.b>=0&&l.b<ti.beats&&l.d>0&&l.s>=0&&l.s<l.d);
   const o={divs,notes,lyrics,section:str(m.section).slice(0,20),repeatStart:!!m.repeatStart,repeatEnd:!!m.repeatEnd,simile:!!m.simile};
   const mof=cleanOff(m.off);if(mof)o.off=mof;
@@ -832,7 +841,7 @@ function computeLayout(){
     for(let it=0;it<14;it++){const mid=(lo+hi)/2;setScale(mid);if(pack().pages.length<=maxP)lo=mid;else hi=mid}
     sc=lo;setScale(sc);res=pack();
   }
-  L={VL,NAT,TIS,...res,hairs,scale:sc,heads:[],rests:[],tempoPos:{},hdrPos:{}};
+  L={VL,NAT,TIS,...res,hairs,scale:sc,heads:[],rests:[],tempoPos:{},hdrPos:{},secPos:{}};
 }
 const mtx=(ml,b,f)=>ml.beatX[b]+ml.pre[b]+f*(ml.beatW[b]-ml.pre[b]);
 
@@ -868,14 +877,14 @@ function renderHeader(exp){
   if(!exp)o+=`<rect class="frame" x="${MARGIN}" y="${r(MARGIN-1)}" width="${r(CONTENT_W)}" height="${r(h)}"/>`;
   const field=(key,val,hint,x,yy,anchor,cls)=>{
     if(!val&&exp)return '';
-    let out=`<text class="tx ${cls}${val?'':' ph'}" x="${r(x)}" y="${r(yy)}"${anchor?` text-anchor="${anchor}"`:''}>${esc(val||hint)}</text>`;
+    let out=`<text data-hdrt="${key}" class="tx ${cls}${val?'':' ph'}" x="${r(x)}" y="${r(yy)}"${anchor?` text-anchor="${anchor}"`:''}>${esc(val||hint)}</text>`;
     if(!exp){const w=key==='title'?CONTENT_W*0.8:CONTENT_W*0.42,hx=anchor==='middle'?x-w/2:anchor==='end'?x-w:x,hh=key==='title'?5.6:3.2;
       out+=`<rect class="hhit" data-hdr="${key}" x="${r(hx)}" y="${r(yy-hh+0.8)}" width="${r(w)}" height="${r(hh)}"/>`;
-      L.hdrPos[key]={x:anchor==='middle'?x:anchor==='end'?x-w/2:x+w/2,y:yy+0.6}}
+      L.hdrPos[key]={x,y:yy,anchor:anchor||'start',tk:cls.slice(2)}}
     return out;
   };
   y+=txs('title').sz*1.05;o+=field('title',score.title,'곡 제목',PAGE_W/2,y,'middle','t-title');
-  if(score.subtitle){y+=txs('sub').sz*1.35;o+=`<text class="tx t-sub" x="${PAGE_W/2}" y="${r(y)}" text-anchor="middle">${esc(score.subtitle)}</text>`}
+  if(score.subtitle){y+=txs('sub').sz*1.35;o+=field('subtitle',score.subtitle,'부제목',PAGE_W/2,y,'middle','t-sub')}
   y+=txs('cmp').sz*1.62;
   o+=field('arranger',score.arranger,'작사 · made by',MARGIN,y,'','t-cmp');
   o+=field('composer',score.composer,'가수',PAGE_W-MARGIN,y,'end','t-cmp');
@@ -927,13 +936,14 @@ function renderMeasure(mi,sys,exp){
   if(m.section){const st=txs('sec'),cap=st.sz*0.72,pad=st.sz*0.42,w=textW(m.section,st.sz,st.w,SEC_FONT)+pad*2,h=cap+pad*2;
     // a part label on the first measure of a line sits at the top-left corner of the staff
     const first=mi===sys.ms[0],bx=first?sys.sx:mx,by=first?top-2.2-pad:rowY;
+    if(!exp){const so=offOf(m,'sec');L.secPos[mi]={page:ml.page,x:bx+pad+(so?so[0]:0),y:by+(so?so[1]:0)}}
     o+=elG('sec:'+mi,offOf(m,'sec'),`<rect x="${r(bx)}" y="${r(by-cap-pad)}" width="${r(w)}" height="${r(h)}" fill="none" class="ln" stroke-width="0.16"/><text class="tx t-sec" x="${r(bx+pad)}" y="${r(by)}">${esc(m.section)}</text>`,[bx,by-cap-pad,w,h]);if(!first)mx+=w+0.9}
   if(m.segno){o+=elG('segno:'+mi,offOf(m,'segno'),glyph(mx,rowY+0.35,G.segno,'',3),[mx-0.2,rowY-2.3,2.4,2.8]);mx+=2.6}
   if(m.coda){o+=elG('coda:'+mi,offOf(m,'coda'),glyph(mx,rowY+0.05,G.coda,'',3),[mx-0.2,rowY-2.3,2.6,2.8]);mx+=2.9}
   if(m.tempo){
     const of=offOf(m,'tempo');
-    if(!exp)L.tempoPos[mi]={page:ml.page,x:mx+4.2+(of?of[0]:0),y:rowY+0.5+(of?of[1]:0)};
-    o+=elG('tempo:'+mi,of,glyph(mx,rowY+0.1,G.metQ,'',2.9)+(ti.compound?glyph(mx+1.2,rowY+0.1,G.dot,'',2.9):'')+`<text class="tx t-tempo" x="${r(mx+(ti.compound?1.7:1.2))}" y="${r(rowY)}"> = ${m.tempo}</text>`,[mx-0.3,rowY-2.6,8.6,3.4]);
+    if(!exp){const st=txs('tempo');L.tempoPos[mi]={page:ml.page,x:mx+(ti.compound?1.7:1.2)+textW(' = ',st.sz,st.w)+(of?of[0]:0),y:rowY+(of?of[1]:0)}}
+    o+=elG('tempo:'+mi,of,glyph(mx,rowY+0.1,G.metQ,'',2.9)+(ti.compound?glyph(mx+1.2,rowY+0.1,G.dot,'',2.9):'')+`<text class="tx t-tempo" x="${r(mx+(ti.compound?1.7:1.2))}" y="${r(rowY)}"> = <tspan data-tnum="${mi}">${m.tempo}</tspan></text>`,[mx-0.3,rowY-2.6,8.6,3.4]);
   }
   if(m.ds)o+=elG('ds:'+mi,offOf(m,'ds'),`<text class="tx t-ds" x="${r(ml.x+ml.w-0.4)}" y="${r(rowY)}" text-anchor="end">D.S.</text>`,[ml.x+ml.w-4.2,rowY-2.1,4,2.6]);
   // time signature change
@@ -953,7 +963,7 @@ function renderMeasure(mi,sys,exp){
   if(v1.mrest&&v2.mrest)o+=wholeRest(mi,ml.x+ml.w/2-0.65,top+1,1);
   else o+=drawVoice(v1,1,v2,ml,top,mi,exp)+drawVoice(v2,2,v1,ml,top,mi,exp);
   m.lyrics.forEach((l,li)=>{
-    const x=mtx(ml,l.b,l.s/l.d)+HEAD_W/2;
+    const x=mtx(ml,l.b,l.s/l.d)+HEAD_W/2+(l.dx||0);
     o+=`<text class="tx t-lyr" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle">${esc(l.t)}</text>`;
   });
   return o;
@@ -1090,8 +1100,8 @@ function drawChord(it,up,top,mi,selId,exp){
     const trn=it.notes.find(n=>n.tr);if(trn){const yc=up?(it.yTop-0.3+it.tip+(it.beamed?0.5*(it.dur.flags||1):0))/2:(it.yBot+0.3+it.tip-(it.beamed?0.5*(it.dur.flags||1):0))/2;o+=elG('tr:'+trn.id,offOf(trn,'tr'),glyph(it.stemX,yc,G.trem),[it.stemX-0.75,yc-0.95,1.5,1.9])}
   }
   // cymbals, and snare + floor tom hit together, always carry an accent
-  const sf=it.notes.some(n=>n.i==='snare')&&it.notes.some(n=>n.i==='ftom');
-  const isAcc=n=>n.a==='accent'||n.i==='crash'||(sf&&(n.i==='snare'||n.i==='ftom'));
+  const sf=it.notes.some(n=>n.i==='snare')&&it.notes.some(n=>n.i==='ftom'),auto=!it.notes.some(n=>n.na);
+  const isAcc=n=>n.a==='accent'||(auto&&(n.i==='crash'||(sf&&(n.i==='snare'||n.i==='ftom'))));
   const acc=it.notes.some(isAcc),open=it.notes.some(n=>n.i==='hho');
   let ay=up?Math.min(it.tip,it.yTop)-0.65:Math.max(it.tip,it.yBot)+0.65;
   if(acc){const an=it.notes.find(isAcc),ax=it.x+HEAD_W/2-0.72;o+=elG('acc:'+an.id,offOf(an,'acc'),glyph(ax,ay,up?G.accA:G.accB),[ax-0.15,up?ay-1.1:ay-0.15,1.75,1.25]);ay+=up?-1.25:1.25}
@@ -1138,7 +1148,8 @@ ${PT_FACE}svg{--paper-ink:#111111;--sel:#111111}${SVG_RULES}${textCss()}`}
 const pagesEl=$('#pages'),canvasEl=$('#canvas');let txStyleEl=null;
 function render(scrollSel){
   if(txStyleEl)txStyleEl.textContent=textCss();
-  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};
+  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};
+  if(zoomFit&&canvasEl.clientWidth)fitZoom();
   pagesEl.innerHTML=L.pages.map((_,i)=>renderPage(i,false)).join('');
   const w=BASE_W*PX_PER_SP*zoom;
   pagesEl.querySelectorAll('svg.page').forEach(s=>{s.style.width=w+'px';s.style.height=(w*BASE_H/BASE_W)+'px'});
@@ -1149,6 +1160,13 @@ function render(scrollSel){
   if(lyr.open)positionLyric();
   if(tempoMi!=null)positionTempo();
   if(hdrKey)positionHdr();
+  positionElDel();
+}
+function positionElDel(){
+  const b=$('#elDel');const el=sel&&sel.type==='el'&&pagesEl.querySelector(`[data-el="${sel.key}"]`);
+  if(!el||inputMode){b.hidden=true;return}
+  const r1=el.getBoundingClientRect(),rc=canvasEl.getBoundingClientRect();
+  b.hidden=false;b.style.left=(r1.right-rc.left+canvasEl.scrollLeft+4)+'px';b.style.top=(r1.top-rc.top+canvasEl.scrollTop-28)+'px';
 }
 function renderChrome(){
   const name=score.title||'제목 없는 악보';
@@ -1163,7 +1181,7 @@ function renderChrome(){
   $('#pads').innerHTML=PAD_ORDER.map(id=>{const ins=INST[id];return `<button class="pad${ins.v===2?' v2':''}" data-inst="${id}" aria-pressed="${id===active}" title="${ins.name} (${ins.key.toUpperCase()})"><span class="ic">${ins.head==='cs'?'<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 3.4V12.6M4 5.7 12 10.3M4 10.3 12 5.7" stroke="currentColor" stroke-width="1.3"/></svg>':ins.head==='x'?G.headX:ins.head==='cx'?G.headCX:G.headBlack}</span><span class="nm">${ins.name}</span><span class="k">${ins.key.toUpperCase()}</span></button>`}).join('');
   $('#tbAccent').disabled=$('#tbGhost').disabled=!sn;$('#tbDel').disabled=!sel||sel.type==='rest';
   $('#tbUndo').disabled=!hist.u.length;$('#tbRedo').disabled=!hist.r.length;
-  $('#zFit').textContent=Math.round(zoom*100)+'%';
+  showZoom();
   let left='';
   if(sn){const {m,n}=sn;left=`음표 · 마디 ${m+1} · ${beatLabel(score.measures[m].divs[n.b],n.b,n.s,tiAt(m))} · ${INST[n.i].name}${n.a==='accent'?' · 악센트':n.a==='ghost'?' · 고스트':''}${n.g==='flam'?' · 플램':n.g==='drag'?' · 드래그':''}${n.tr?' · 더블 스트로크':''}${n.ar?' · →':''}`}
   else if(sel&&sel.type==='el'){const t=sel.key.split(':')[0];left=`${EL_NAME[t]} 선택됨 · 마디 ${sel.m+1}`+(NODRAG.has(t)?' · Del 지우기':' · 드래그나 ←→↑↓(Shift는 크게)로 옮기기 · Del 지우기')}
@@ -1200,10 +1218,11 @@ function setOffset(key,off){
 }
 function deleteEl(key){
   const o=elOwner(key);if(!o)return;
+  if(o.kind==='measure'&&o.t==='ts'){sel={type:'measure',m:o.m};setTsFrom(o.m,tsAt(o.m-1));return}
   commit(()=>{
     if(o.kind==='note'){
       const m=score.measures[o.m],chord=m.notes.filter(n=>n.b===o.n.b&&n.s===o.n.s);
-      if(o.t==='acc'){chord.forEach(n=>{if(n.a==='accent')delete n.a});if(chord.some(n=>n.i==='crash'))setTimeout(()=>toast('심벌에는 악센트가 항상 붙어요'),30);else if(chord.some(n=>n.i==='snare')&&chord.some(n=>n.i==='ftom'))setTimeout(()=>toast('스네어+플로어탐에는 악센트가 항상 붙어요'),30)}
+      if(o.t==='acc')setChordAcc(o.m,o.n,false);
       if(o.t==='open')chord.forEach(n=>{if(n.i==='hho')n.i='hh'});
       if(o.t==='ar')chord.forEach(n=>delete n.ar);
       if(o.t==='tr')chord.forEach(n=>delete n.tr);
@@ -1412,7 +1431,16 @@ function setInstOn(m,note,inst){
   note.i=inst;return true;
 }
 function setInst(id,inst){commit(()=>{const f=findNote(id);if(!f)return false;return setInstOn(score.measures[f.m],f.n,inst)})}
-function toggleArt(id,a){commit(()=>{const f=findNote(id);if(!f)return false;if(f.n.a===a)delete f.n.a;else f.n.a=a})}
+// accents: cymbals and snare+floor tom get one automatically; deleting it marks the chord with na (no auto accent)
+const chordOf=(mi,n)=>score.measures[mi].notes.filter(x=>x.b===n.b&&x.s===n.s);
+const autoAcc=ch=>ch.some(x=>x.i==='crash')||(ch.some(x=>x.i==='snare')&&ch.some(x=>x.i==='ftom'));
+const accShown=ch=>ch.some(x=>x.a==='accent')||(autoAcc(ch)&&!ch.some(x=>x.na));
+function setChordAcc(mi,n,on){const ch=chordOf(mi,n);
+  if(on){n.a='accent';ch.forEach(x=>delete x.na)}
+  else{ch.forEach(x=>{if(x.a==='accent')delete x.a});if(autoAcc(ch))ch.forEach(x=>x.na=1)}}
+function toggleArt(id,a){commit(()=>{const f=findNote(id);if(!f)return false;
+  if(a==='accent'){setChordAcc(f.m,f.n,!accShown(chordOf(f.m,f.n)));return}
+  if(f.n.a===a)delete f.n.a;else f.n.a=a})}
 function deleteNote(id){
   const list=orderedNotes(),idx=list.findIndex(x=>x.n.id===id);
   commit(()=>{const f=findNote(id);if(!f)return false;const m=score.measures[f.m];m.notes.splice(m.notes.indexOf(f.n),1);
@@ -1524,8 +1552,8 @@ function applyPalette(id){
   }
   if(id==='accent'){
     const ts=targetNotes();if(!ts.length){toast('악센트를 붙일 음표가 없어요');return}
-    const all=ts.every(x=>x.n.a==='accent');
-    commit(()=>{for(const x of ts){if(all)delete x.n.a;else x.n.a='accent'}});return;
+    const all=ts.every(x=>accShown(chordOf(x.m,x.n)));
+    commit(()=>{for(const x of ts)setChordAcc(x.m,x.n,!all)});return;
   }
   if(id==='hho'||id==='hh'){
     const sn=getSelNote();
@@ -1592,7 +1620,17 @@ pagesEl.addEventListener('pointerdown',e=>{
   const svg=e.target.closest('svg.page');if(!svg)return;
   if(lyr.open)closeLyric(true);
   const ly=e.target.closest('[data-lyr]');
-  if(ly&&!inputMode){e.preventDefault();openLyricAtExisting(+ly.dataset.m,+ly.dataset.lyr);return}
+  if(ly&&!inputMode){
+    e.preventDefault();const mi=+ly.dataset.m,li=+ly.dataset.lyr,l0=score.measures[mi]&&score.measures[mi].lyrics[li];if(!l0)return;
+    const start=svgPoint(svg,e),base=l0.dx||0;let moved=false;
+    const mv=ev=>{const dx=svgPoint(svg,ev).x-start.x;if(!moved&&Math.abs(dx)<0.3)return;moved=true;ly.setAttribute('transform',`translate(${r(dx)} 0)`)};
+    const upf=ev=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
+      if(!moved){openLyricAtExisting(mi,li);return}
+      const v=Math.round(Math.max(-12,Math.min(12,base+svgPoint(svg,ev).x-start.x))*100)/100;
+      commit(()=>{const l=score.measures[mi].lyrics[li];if(!l)return false;if(v)l.dx=v;else delete l.dx});};
+    window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
+    return;
+  }
   // a click right on a notehead always picks the note, even when a mark (accent, o, slash…) sits close by
   if(!inputMode&&!e.shiftKey){const pi0=+svg.dataset.p,p0=svgPoint(svg,e),h0=headAt(pi0,p0);
     if(h0&&h0.d<0.95){e.preventDefault();select({type:'note',m:h0.m,id:h0.id});startSideDrag(e,pi0,p0,'note',h0.m,h0.id);return}}
@@ -1600,6 +1638,7 @@ pagesEl.addEventListener('pointerdown',e=>{
   if(elx){
     e.preventDefault();const key=elx.dataset.el,o=elOwner(key);if(!o)return;
     const start=svgPoint(svg,e),tgt=o.kind==='note'?o.n:o.meas,base=(tgt.off&&tgt.off[o.t])||[0,0];
+    const again=sel&&sel.type==='el'&&sel.key===key;
     select({type:'el',key,m:o.m});
     if(NODRAG.has(o.t))return;
     const node=pagesEl.querySelector(`[data-el="${key}"]`),svg2=node&&node.ownerSVGElement;if(!node)return;
@@ -1607,7 +1646,8 @@ pagesEl.addEventListener('pointerdown',e=>{
     const mv=ev=>{const p=svgPoint(svg2,ev),dx=p.x-start.x,dy=p.y-start.y;if(!moved&&Math.hypot(dx,dy)<0.25)return;moved=true;node.setAttribute('transform',`translate(${r(base[0]+dx)} ${r(base[1]+dy)})`)};
     const upf=ev=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
       if(moved){const p=svgPoint(svg2,ev);setOffset(key,[base[0]+p.x-start.x,base[1]+p.y-start.y])}
-      else if(o.t==='tempo')openTempo(o.m);};
+      else if(o.t==='tempo')openTempo(o.m);
+      else if(o.t==='sec'&&again)openHdr(key);};
     window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
     return;
   }
@@ -1669,22 +1709,32 @@ function openLyric(p){
   positionLyric();lyrEl.focus();lyrEl.select();
   if(!(sel&&sel.type==='measure'&&sel.m===p.mi)){sel={type:'measure',m:p.mi};render()}
 }
+// place an input exactly over a piece of score text so editing happens in place
+function placeInline(inp,{page,x,y,anchor,tk,family,hide}){
+  const svg=pagesEl.querySelector(`svg.page[data-p="${page}"]`);if(!svg)return;
+  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W,st=txs(tk);
+  const fam=family||fontCss(),fs=st.sz*k,val=inp.value||inp.placeholder||'';
+  const wpx=Math.max(fs*1.2,textW(val,st.sz,st.w,fam)*k+fs*0.5);
+  const X=sr.left-cr.left+canvasEl.scrollLeft+x*k,Y=sr.top-cr.top+canvasEl.scrollTop+y*k;
+  Object.assign(inp.style,{fontFamily:fam,fontWeight:st.w,fontSize:fs+'px',lineHeight:(fs*1.3)+'px',height:(fs*1.3)+'px',width:wpx+'px',
+    textAlign:anchor==='middle'?'center':anchor==='end'?'right':'left',top:(Y-fs*1.0)+'px',
+    left:(anchor==='middle'?X-wpx/2:anchor==='end'?X-wpx:X)+'px'});
+  pagesEl.querySelectorAll('.editing').forEach(e=>e.classList.remove('editing'));
+  if(hide){const h=pagesEl.querySelector(hide);if(h)h.classList.add('editing')}
+}
+const unhideEditing=()=>pagesEl.querySelectorAll('.editing').forEach(e=>e.classList.remove('editing'));
 function positionLyric(){
   const p=lyr.pos;if(!p)return;const ml=L.mL[p.mi];if(!ml)return;
-  const svg=pagesEl.querySelector(`svg.page[data-p="${ml.page}"]`);if(!svg)return;
-  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W;
-  const x=mtx(ml,p.b,p.t-p.b)+HEAD_W/2,y=ml.top+ml.sys.lyrY+0.6;
-  lyrEl.style.left=(sr.left-cr.left+canvasEl.scrollLeft+x*k)+'px';
-  lyrEl.style.top=(sr.top-cr.top+canvasEl.scrollTop+y*k)+'px';
-  const fs=Math.max(13,2.05*k);lyrEl.style.fontSize=fs+'px';lyrEl.style.width=Math.max(48,(lyrEl.value.length+2)*fs)+'px';
+  const m=score.measures[p.mi],li=m.lyrics.findIndex(l=>Math.abs(l.b+l.s/l.d-p.t)<1e-6),ex=li>=0?m.lyrics[li]:null;
+  placeInline(lyrEl,{page:ml.page,x:mtx(ml,p.b,p.t-p.b)+HEAD_W/2+(ex&&ex.dx||0),y:ml.top+ml.sys.lyrY,anchor:'middle',tk:'lyr',hide:li>=0?`[data-lyr="${li}"][data-m="${p.mi}"]`:null});
 }
 function commitLyric(){
   const p=lyr.pos;if(!p)return;
   const v=lyrEl.value.trim().slice(0,24),ex=lyricAt(p);
   if((ex?ex.t:'')===v)return;
-  commit(()=>{const m=score.measures[p.mi];m.lyrics=m.lyrics.filter(l=>Math.abs(l.b+l.s/l.d-p.t)>=1e-6);if(v)m.lyrics.push({b:p.b,s:p.s,d:p.d,t:v})});
+  commit(()=>{const m=score.measures[p.mi];m.lyrics=m.lyrics.filter(l=>Math.abs(l.b+l.s/l.d-p.t)>=1e-6);if(v)m.lyrics.push(ex&&ex.dx?{b:p.b,s:p.s,d:p.d,t:v,dx:ex.dx}:{b:p.b,s:p.s,d:p.d,t:v})});
 }
-function closeLyric(save){if(!lyr.open)return;if(save)commitLyric();lyr.open=false;lyr.pos=null;lyrEl.hidden=true;lyrEl.blur()}
+function closeLyric(save){if(!lyr.open)return;if(save)commitLyric();lyr.open=false;lyr.pos=null;lyrEl.hidden=true;lyrEl.blur();unhideEditing()}
 function moveLyric(dir){
   commitLyric();
   const ps=lyricPositions(),i=ps.findIndex(p=>samePos(p,lyr.pos)),nx=ps[i+dir];
@@ -1717,42 +1767,41 @@ function openTempo(mi){
 }
 function positionTempo(){
   if(tempoMi==null)return;const tp=L.tempoPos&&L.tempoPos[tempoMi];if(!tp)return;
-  const svg=pagesEl.querySelector(`svg.page[data-p="${tp.page}"]`);if(!svg)return;
-  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W;
-  tempoEl.style.left=(sr.left-cr.left+canvasEl.scrollLeft+tp.x*k)+'px';
-  tempoEl.style.top=(sr.top-cr.top+canvasEl.scrollTop+tp.y*k)+'px';
-  tempoEl.style.fontSize=Math.max(13,2.2*k)+'px';tempoEl.style.width='5.5em';
+  placeInline(tempoEl,{page:tp.page,x:tp.x,y:tp.y,anchor:'start',tk:'tempo',hide:`[data-tnum="${tempoMi}"]`});
 }
 function closeTempo(save){
-  if(tempoMi==null)return;const mi=tempoMi;tempoMi=null;tempoEl.hidden=true;
+  if(tempoMi==null)return;const mi=tempoMi;tempoMi=null;tempoEl.hidden=true;unhideEditing();
   if(!save)return;const v=validTempo(tempoEl.value);
   if(!v){toast('템포는 20~320 사이 숫자로 넣어 주세요');return}
   if(score.measures[mi]&&score.measures[mi].tempo!==v)commit(()=>{score.measures[mi].tempo=v});
 }
+tempoEl.addEventListener('input',positionTempo);
 tempoEl.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();closeTempo(true)}else if(e.key==='Escape'){e.preventDefault();closeTempo(false)}});
 tempoEl.addEventListener('blur',()=>setTimeout(()=>{if(tempoMi!=null&&document.activeElement!==tempoEl)closeTempo(true)},120));
 
 /* ---------- header editor ---------- */
 const hdrEl=$('#hdrInput');let hdrKey=null;
-const HDR_LABEL={title:'곡 제목',arranger:'작사 · made by',composer:'가수'};
+const HDR_LABEL={title:'곡 제목',subtitle:'부제목',arranger:'작사 · made by',composer:'가수'};
 function openHdr(key){
-  hdrKey=key;hdrEl.hidden=false;hdrEl.value=score[key]||'';hdrEl.placeholder=HDR_LABEL[key];positionHdr();hdrEl.focus();hdrEl.select();
+  const sm=key.startsWith('sec:')&&score.measures[+key.slice(4)];
+  hdrKey=key;hdrEl.hidden=false;hdrEl.value=sm?sm.section:(score[key]||'');hdrEl.placeholder=sm?'파트 이름':HDR_LABEL[key];positionHdr();hdrEl.focus();hdrEl.select();
 }
 function positionHdr(){
-  if(!hdrKey)return;const hp=L.hdrPos&&L.hdrPos[hdrKey];if(!hp)return;
-  const svg=pagesEl.querySelector('svg.page[data-p="0"]');if(!svg)return;
-  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W;
-  hdrEl.style.left=(sr.left-cr.left+canvasEl.scrollLeft+hp.x*k)+'px';
-  hdrEl.style.top=(sr.top-cr.top+canvasEl.scrollTop+hp.y*k)+'px';
-  const fs=Math.max(13,(hdrKey==='title'?3.2:2.1)*k);hdrEl.style.fontSize=fs+'px';hdrEl.style.width=Math.max(160,(hdrKey==='title'?22:14)*fs*0.62)+'px';
+  if(!hdrKey)return;
+  if(hdrKey.startsWith('sec:')){const sp=L.secPos&&L.secPos[+hdrKey.slice(4)];if(!sp)return;
+    placeInline(hdrEl,{page:sp.page,x:sp.x,y:sp.y,anchor:'start',tk:'sec',family:SEC_FONT,hide:`[data-el="${hdrKey}"] text`});return}
+  const hp=L.hdrPos&&L.hdrPos[hdrKey];if(!hp)return;
+  placeInline(hdrEl,{page:0,x:hp.x,y:hp.y,anchor:hp.anchor,tk:hp.tk,hide:`[data-hdrt="${hdrKey}"]`});
 }
 function closeHdr(save){
-  if(!hdrKey)return;const key=hdrKey;hdrKey=null;hdrEl.hidden=true;
+  if(!hdrKey)return;const key=hdrKey;hdrKey=null;hdrEl.hidden=true;unhideEditing();
   if(!save)return;const v=str(hdrEl.value);
+  if(key.startsWith('sec:')){const mi=+key.slice(4);if(score.measures[mi]&&score.measures[mi].section!==v.slice(0,20))commit(()=>{sectionOn(mi,v.slice(0,20))});return}
   if((score[key]||'')!==v)commit(()=>{score[key]=v});
   if(!$('#dock-lay').hidden)fillLayout();
 }
 hdrEl.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229)return;if(e.key==='Enter'){e.preventDefault();closeHdr(true)}else if(e.key==='Escape'){e.preventDefault();closeHdr(false)}});
+hdrEl.addEventListener('input',positionHdr);
 hdrEl.addEventListener('blur',()=>setTimeout(()=>{if(hdrKey&&document.activeElement!==hdrEl)closeHdr(true)},120));
 
 /* ---------- keyboard ---------- */
@@ -1853,15 +1902,22 @@ $('#tbAccent').onclick=()=>{const sn=getSelNote();if(sn)toggleArt(sn.n.id,'accen
 $('#tbGhost').onclick=()=>{const sn=getSelNote();if(sn)toggleArt(sn.n.id,'ghost')};
 $('#tbLyric').onclick=()=>startLyrics();
 $('#tbDel').onclick=()=>deleteSelection();
+$('#elDel').addEventListener('pointerdown',e=>e.stopPropagation());
+$('#elDel').onclick=e=>{e.stopPropagation();if(sel&&sel.type==='el')deleteEl(sel.key)};
 $('#tbUndo').onclick=undo;$('#tbRedo').onclick=redo;
 function setZoom(z){zoom=Math.max(0.4,Math.min(2.5,z));zoomFit=false;render()}
+function showZoom(){const i=$('#zPct');if(i&&document.activeElement!==i)i.value=Math.round(zoom*100)}
+$('#zPct').addEventListener('change',e=>{const v=parseFloat(String(e.target.value).replace(/[^\d.]/g,''));if(v>0){setZoom(v/100);if(v<40||v>250)toast('보기 비율은 40~250% 사이로 맞춰요')}showZoom()});
+$('#zPct').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();e.target.blur()}else if(e.key==='Escape'){e.target.blur()}});
+$('#zPct').addEventListener('blur',showZoom);
+$('#zPct').addEventListener('focus',e=>e.target.select());
 $('#zIn').onclick=()=>setZoom(zoom*1.15);$('#zOut').onclick=()=>setZoom(zoom/1.15);
 $('#zFit').onclick=()=>{fitZoom();render();centerView()};
 function applyZoom(){
   const w=BASE_W*PX_PER_SP*zoom;
   pagesEl.querySelectorAll('svg.page').forEach(s=>{s.style.width=w+'px';s.style.height=(w*BASE_H/BASE_W)+'px'});
-  $('#zFit').textContent=Math.round(zoom*100)+'%';
-  if(lyr.open)positionLyric();if(tempoMi!=null)positionTempo();if(hdrKey)positionHdr();
+  showZoom();
+  if(lyr.open)positionLyric();if(tempoMi!=null)positionTempo();if(hdrKey)positionHdr();positionElDel();
 }
 // Ctrl (or ⌘) + mouse wheel / trackpad pinch zooms the score around the pointer
 canvasEl.addEventListener('wheel',e=>{
@@ -1875,8 +1931,9 @@ canvasEl.addEventListener('wheel',e=>{
   const k=nz/old;canvasEl.scrollLeft=mx*k-px;canvasEl.scrollTop=my*k-py;
 },{passive:false});
 // put the pages in the middle of the view horizontally
-function centerView(){const pg=pagesEl.querySelector('svg.page');if(!pg)return;const cr=canvasEl.getBoundingClientRect(),pr=pg.getBoundingClientRect();canvasEl.scrollLeft+=(pr.left+pr.width/2)-(cr.left+cr.width/2)}
-function fitZoom(){const w=canvasEl.clientWidth-40;zoom=Math.max(0.4,Math.min(1.4,w/(BASE_W*PX_PER_SP)));zoomFit=true}
+function centerView(){const ps=pagesEl.querySelectorAll('svg.page');if(!ps.length)return;const cr=canvasEl.getBoundingClientRect(),a=ps[0].getBoundingClientRect(),b=ps[Math.min(ps.length,2)-1].getBoundingClientRect();canvasEl.scrollLeft+=(a.left+b.right)/2-(cr.left+cr.width/2)}
+// fit the pages (up to two, side by side) into the view width
+function fitZoom(){const n=Math.max(1,Math.min(2,L&&L.pages?L.pages.length:1)),w=canvasEl.clientWidth-40-26*(n-1);zoom=Math.max(0.3,Math.min(1.4,w/(n*BASE_W*PX_PER_SP)));zoomFit=true}
 let rzT=0;window.addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(view!=='score')return;if(zoomFit){fitZoom();render();centerView()}else if(lyr.open)positionLyric()},150)});
 
 const DOCK=['pal','cap','lay','prop'];
