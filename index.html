@@ -895,7 +895,7 @@ function renderSystem(sys,exp){
     o+=tsGlyphs(tx,top+1,score.ts[0],w)+tsGlyphs(tx,top+3,score.ts[1],w);
   }
   for(const mi of sys.ms)o+=renderMeasure(mi,sys,exp);
-  if(score.showNums&&sys.ms[0]>0)o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(top-1.2)}">${sys.ms[0]+1}</text>`;
+  if(score.showNums&&sys.ms[0]>0){const sm=score.measures[sys.ms[0]];o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(sm.section?top-2.2-txs('sec').sz*1.56-0.5:top-1.2)}">${sys.ms[0]+1}</text>`}
   for(const h of sys.hairs)o+=drawHairpin(h,sys);
   return o;
 }
@@ -925,7 +925,9 @@ function renderMeasure(mi,sys,exp){
   // marks row above the staff: section box, segno, coda, tempo; D.S. at the right
   const rowY=top-7.05-(sys.markShift||0);let mx=ml.x+0.2;
   if(m.section){const st=txs('sec'),cap=st.sz*0.72,pad=st.sz*0.42,w=textW(m.section,st.sz,st.w,SEC_FONT)+pad*2,h=cap+pad*2;
-    o+=elG('sec:'+mi,offOf(m,'sec'),`<rect x="${r(mx)}" y="${r(rowY-cap-pad)}" width="${r(w)}" height="${r(h)}" fill="none" class="ln" stroke-width="0.16"/><text class="tx t-sec" x="${r(mx+pad)}" y="${r(rowY)}">${esc(m.section)}</text>`,[mx,rowY-cap-pad,w,h]);mx+=w+0.9}
+    // a part label on the first measure of a line sits at the top-left corner of the staff
+    const first=mi===sys.ms[0],bx=first?sys.sx:mx,by=first?top-2.2-pad:rowY;
+    o+=elG('sec:'+mi,offOf(m,'sec'),`<rect x="${r(bx)}" y="${r(by-cap-pad)}" width="${r(w)}" height="${r(h)}" fill="none" class="ln" stroke-width="0.16"/><text class="tx t-sec" x="${r(bx+pad)}" y="${r(by)}">${esc(m.section)}</text>`,[bx,by-cap-pad,w,h]);if(!first)mx+=w+0.9}
   if(m.segno){o+=elG('segno:'+mi,offOf(m,'segno'),glyph(mx,rowY+0.35,G.segno,'',3),[mx-0.2,rowY-2.3,2.4,2.8]);mx+=2.6}
   if(m.coda){o+=elG('coda:'+mi,offOf(m,'coda'),glyph(mx,rowY+0.05,G.coda,'',3),[mx-0.2,rowY-2.3,2.6,2.8]);mx+=2.9}
   if(m.tempo){
@@ -1087,7 +1089,9 @@ function drawChord(it,up,top,mi,selId,exp){
     if(fl>=1&&!it.beamed)o+=glyph(it.stemX-STEM_W/2,it.tip,up?G.flagUp[fl]:G.flagDn[fl]);
     const trn=it.notes.find(n=>n.tr);if(trn){const yc=up?(it.yTop-0.3+it.tip+(it.beamed?0.5*(it.dur.flags||1):0))/2:(it.yBot+0.3+it.tip-(it.beamed?0.5*(it.dur.flags||1):0))/2;o+=elG('tr:'+trn.id,offOf(trn,'tr'),glyph(it.stemX,yc,G.trem),[it.stemX-0.75,yc-0.95,1.5,1.9])}
   }
-  const isAcc=n=>n.a==='accent'||n.i==='crash';
+  // cymbals, and snare + floor tom hit together, always carry an accent
+  const sf=it.notes.some(n=>n.i==='snare')&&it.notes.some(n=>n.i==='ftom');
+  const isAcc=n=>n.a==='accent'||n.i==='crash'||(sf&&(n.i==='snare'||n.i==='ftom'));
   const acc=it.notes.some(isAcc),open=it.notes.some(n=>n.i==='hho');
   let ay=up?Math.min(it.tip,it.yTop)-0.65:Math.max(it.tip,it.yBot)+0.65;
   if(acc){const an=it.notes.find(isAcc),ax=it.x+HEAD_W/2-0.72;o+=elG('acc:'+an.id,offOf(an,'acc'),glyph(ax,ay,up?G.accA:G.accB),[ax-0.15,up?ay-1.1:ay-0.15,1.75,1.25]);ay+=up?-1.25:1.25}
@@ -1199,7 +1203,7 @@ function deleteEl(key){
   commit(()=>{
     if(o.kind==='note'){
       const m=score.measures[o.m],chord=m.notes.filter(n=>n.b===o.n.b&&n.s===o.n.s);
-      if(o.t==='acc'){chord.forEach(n=>{if(n.a==='accent')delete n.a});if(chord.some(n=>n.i==='crash'))setTimeout(()=>toast('심벌에는 악센트가 항상 붙어요'),30)}
+      if(o.t==='acc'){chord.forEach(n=>{if(n.a==='accent')delete n.a});if(chord.some(n=>n.i==='crash'))setTimeout(()=>toast('심벌에는 악센트가 항상 붙어요'),30);else if(chord.some(n=>n.i==='snare')&&chord.some(n=>n.i==='ftom'))setTimeout(()=>toast('스네어+플로어탐에는 악센트가 항상 붙어요'),30)}
       if(o.t==='open')chord.forEach(n=>{if(n.i==='hho')n.i='hh'});
       if(o.t==='ar')chord.forEach(n=>delete n.ar);
       if(o.t==='tr')chord.forEach(n=>delete n.tr);
@@ -2084,12 +2088,12 @@ Rhythm encoding:
 - Per measure, optional: "simile": true with "notes": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true for repeat barlines; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM if a tempo mark sits above it; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans; "lyrics": [{"b":0,"s":0,"t":"text"}] for words under the staff at the note they sit under.
 
 Reply with only JSON in this shape:
-{"title": null, "timeSig": [4,4], "measures": [{"divs":[2,2,2,2], "notes":[{"b":0,"s":0,"i":"hh"},{"b":0,"s":0,"i":"kick"}]}]}
+{"title": null, "singer": null, "timeSig": [4,4], "measures": [{"divs":[2,2,2,2], "notes":[{"b":0,"s":0,"i":"hh"},{"b":0,"s":0,"i":"kick"}]}]}
 
 Example: a basic rock beat in 4/4 (hi-hat 8ths, kick on 1 and 3, snare on 2 and 4) is
 {"divs":[2,2,2,2],"notes":[{"b":0,"s":0,"i":"hh"},{"b":0,"s":0,"i":"kick"},{"b":0,"s":1,"i":"hh"},{"b":1,"s":0,"i":"hh"},{"b":1,"s":0,"i":"snare"},{"b":1,"s":1,"i":"hh"},{"b":2,"s":0,"i":"hh"},{"b":2,"s":0,"i":"kick"},{"b":2,"s":1,"i":"hh"},{"b":3,"s":0,"i":"hh"},{"b":3,"s":0,"i":"snare"},{"b":3,"s":1,"i":"hh"}]}
 
-Transcribe every measure you can see, left to right and top to bottom, and nothing else. Give "title" only if printed in the image. If the image is not drum notation, reply {"error": "<short reason in Korean>"}.`;
+Transcribe every measure you can see, left to right and top to bottom, and nothing else. Give "title" (song title) and "singer" only if they are printed in the image or written in my message (for example "제목: 사랑비, 가수: 김태우" -> "title": "사랑비", "singer": "김태우"); otherwise null. If the image is not drum notation, reply {"error": "<short reason in Korean>"}.`;
 }
 function sampleErr(e){
   switch(e&&e.code){
@@ -2130,6 +2134,13 @@ function applyImport(job,data){
   if(data.error){job.status='err';job.msg='드럼 악보를 찾지 못했어요: '+String(data.error).slice(0,80);return}
   const raw=Array.isArray(data.measures)?data.measures:[];
   if(!raw.length){job.status='err';job.msg='마디를 하나도 찾지 못했어요. 더 선명하게 캡처해 주세요.';return}
+  const nt=typeof data.title==='string'?str(data.title).trim():'',ns=typeof data.singer==='string'?str(data.singer).trim():'';
+  let newSong=false;
+  if(nt&&!(score.pristine||score.measures.every(isBlank))&&score.title&&score.title.trim()!==nt){
+    // a different song title -> keep the open score as it is and start a new one
+    if(dirty){clearTimeout(saveTimer);flushSave()}
+    score=blankScore();hist.u=[];hist.r=[];userTouched=true;newSong=true;
+  }
   commit(()=>{
     const fresh=score.pristine||score.measures.every(isBlank);
     const dts=isTs(data.timeSig)?validTs(data.timeSig):null;
@@ -2138,7 +2149,9 @@ function applyImport(job,data){
       score=normScore({...keep,id:score.pristine?sid():score.id,ts:dts||score.ts,mpl:score.mpl,measures:[]});
       score.measures=[];
       if(!score.title&&typeof data.title==='string')score.title=str(data.title);
+      if(ns)score.composer=ns;
     }
+    else{if(nt&&!score.title)score.title=nt;if(ns&&!score.composer)score.composer=ns}
     const start=score.measures.length;
     let ts=start?tsAt(start-1):score.ts;
     raw.forEach((rm,ri)=>{
@@ -2156,7 +2169,7 @@ function applyImport(job,data){
     job.range=[start+1,score.measures.length];
     sel={type:'measure',m:start};
   },{scroll:true});
-  if(job.range){job.status='ok';job.msg=`마디 ${job.range[0]}–${job.range[1]}에 넣었어요`}
+  if(job.range){job.status='ok';job.msg=newSong?`새 악보 “${score.title}”${score.composer?' · '+score.composer:''}로 만들었어요`:`마디 ${job.range[0]}–${job.range[1]}에 넣었어요`;if(newSong)$('#docTab').textContent=score.title}
   else{job.status='err';job.msg='읽은 마디가 비어 있어요. 다시 시도해 주세요.'}
 }
 function jobStatText(j){
@@ -2248,17 +2261,17 @@ function setDirtyMark(v){if(dirtyMark!==v){dirtyMark=v;$('#docTab').textContent=
 function scheduleSave(){if(score.pristine)return;dirty=true;setDirtyMark(true);setSave('busy','저장 중…');clearTimeout(saveTimer);saveTimer=setTimeout(flushSave,1000)}
 async function flushSave(){
   if(saving||!dirty)return;
-  saving=true;dirty=false;
+  saving=true;dirty=false;const sc=score;
   await storeP;
-  const body={title:score.title||'제목 없는 악보',updatedAt:Date.now(),count:score.measures.length,data:JSON.stringify(score)};
+  const body={title:sc.title||'제목 없는 악보',updatedAt:Date.now(),count:score.measures.length,data:JSON.stringify(sc)};
   try{
-    if(db)await db.collection(userCol()).doc(score.id).set(body);
+    if(db)await db.collection(userCol()).doc(sc.id).set(body);
     else{
-      if(!lsSet('jds:s:'+score.id,body.data))throw {code:'local'};
-      const idx=JSON.parse(lsGet('jds:index')||'[]').filter(x=>x.id!==score.id);idx.unshift({id:score.id,title:body.title,updatedAt:body.updatedAt,count:body.count});lsSet('jds:index',JSON.stringify(idx.slice(0,200)));
+      if(!lsSet('jds:s:'+sc.id,body.data))throw {code:'local'};
+      const idx=JSON.parse(lsGet('jds:index')||'[]').filter(x=>x.id!==sc.id);idx.unshift({id:sc.id,title:body.title,updatedAt:body.updatedAt,count:body.count});lsSet('jds:index',JSON.stringify(idx.slice(0,200)));
     }
-    lsSet('jds:last',score.id);
-    const it=list.find(x=>x.id===score.id);if(it)Object.assign(it,{title:body.title,updatedAt:body.updatedAt,count:body.count});else list.unshift({id:score.id,title:body.title,updatedAt:body.updatedAt,count:body.count});
+    lsSet('jds:last',sc.id);
+    const it=list.find(x=>x.id===sc.id);if(it)Object.assign(it,{title:body.title,updatedAt:body.updatedAt,count:body.count});else list.unshift({id:sc.id,title:body.title,updatedAt:body.updatedAt,count:body.count});
   }catch(e){
     saveFails++;dirty=true;saving=false;
     if(e&&e.code==='quota_exceeded'){setSave('err','저장 공간이 꽉 찼어요 · 백업 파일로 내보내 주세요');return}
