@@ -2241,7 +2241,7 @@ async function loadList(){
       list=snap.docs.map(d=>{const x=d.data();return {id:d.id,title:x.title,updatedAt:x.updatedAt,count:x.count}})}catch(e){list=[]}}
   else{try{list=JSON.parse(lsGet('jds:index')||'[]')}catch(e){list=[]}}
 }
-async function openScore(id){
+async function openScore(id,stay){
   let data=null;
   try{
     if(db){const d=await db.collection(userCol()).doc(id).get();if(d.exists)data=d.data().data}
@@ -2250,7 +2250,8 @@ async function openScore(id){
     score=normScore(JSON.parse(data));score.id=id;
   }catch(e){toast('악보를 여는 중 문제가 생겼어요');return}
   hist.u=[];hist.r=[];sel={type:'measure',m:0};lsSet('jds:last',id);dirtyMark=false;
-  setSave('ok',storeLabel());showView('score');
+  setSave('ok',storeLabel());
+  if(stay){$('#docTab').textContent=score.title||'제목 없는 악보';if(view==='home')renderHome()}else showView('score');
 }
 async function deleteScore(id){
   try{if(db)await db.collection(userCol()).doc(id).delete();else{lsDel('jds:s:'+id);lsSet('jds:index',JSON.stringify(list.filter(x=>x.id!==id)))}}
@@ -2289,7 +2290,7 @@ $('#fileJson').onchange=async e=>{
 async function initStore(){
   await storeP;await loadList();
   setSave('ok',storeLabel());
-  if(!userTouched&&list.length){const last=lsGet('jds:last');const pick=list.find(x=>x.id===last)||list[0];await openScore(pick.id)}
+  if(!userTouched&&list.length){const last=lsGet('jds:last');const pick=list.find(x=>x.id===last)||list[0];await openScore(pick.id,true)}
   else if(score.pristine)setSave('',score.title.startsWith('예시')?'예시 악보':'새 악보');
   if(view==='home')renderHome();
 }
@@ -2343,6 +2344,7 @@ async function doExport(kind){
   if(document.fonts&&document.fonts.load)Promise.all([document.fonts.load("400 10px Pretendard"),document.fonts.load("700 10px Pretendard"),document.fonts.load("700 10px Edwin"),document.fonts.load("400 10px Edwin")]).then(()=>{measureCache.clear();renderPalette();if(view==='score')render();else if(view==='home')renderHome()}).catch(()=>{});
   renderPalette();fitZoom();render();renderQueue();requestAnimationFrame(centerView);
   setSave('','예시 악보');
+  showView('home');
   initStore();
 })();
 </script>
