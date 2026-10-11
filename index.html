@@ -378,6 +378,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <kbd>.</kbd><span>점 붙이기 / 떼기</span>
             <kbd>쉼표 + 1~7</kbd><span>쉼표를 누르고 숫자를 치면 쉼표 길이가 바뀌어요 (5 = 4분쉼표)</span>
             <kbd>Ctrl+3</kbd><span>셋잇단 켜기 / 끄기</span>
+            <kbd>Ctrl+숫자</kbd><span>마디 선택 후: 이 줄을 그 마디 수로 (Ctrl+5 → 5마디)</span>
             <kbd>N</kbd><span>음표 입력 모드 — 길이를 고르고 단축키를 누르면 찍히고 다음 칸으로 넘어가요. Shift+단축키는 방금 찍은 자리에 겹쳐요</span>
             <kbd>클릭+단축키</kbd><span>음표를 누르고 단축키 → 그 음표가 새 악기로 바뀌어요. 쉼표를 누르고 단축키 → 쉼표 자리에 음표가 들어가요</span>
             <kbd>Shift+단축키</kbd><span>선택한 음표에 그 악기를 겹쳐 더해요 (입력 모드에서는 방금 찍은 자리에 겹쳐요)</span>
@@ -1863,6 +1864,8 @@ document.addEventListener('keydown',e=>{
   if(ctrl&&letter==='z'){e.preventDefault();e.shiftKey?redo():undo();return}
   if(ctrl&&letter==='y'){e.preventDefault();redo();return}
   if(ctrl&&letter==='l'){e.preventDefault();startLyrics();return}
+  // Ctrl+number with a measure selected: that many measures on this line (Ctrl+3 stays the triplet key for notes / input mode)
+  if(ctrl&&!e.shiftKey&&digit>=1&&digit<=9&&!inputMode&&sel&&(sel.type==='measure'||sel.type==='range')){e.preventDefault();setLineN(sel.m,digit);return}
   if(ctrl&&digit===3){e.preventDefault();inputTrip=!inputTrip;renderChrome();return}
   if(ctrl&&letter==='c'){if(sel&&sel.type!=='note'){clipMeasure=JSON.stringify(score.measures[sel.m]);toast(`마디 ${sel.m+1}을 복사했어요`);e.preventDefault()}return}
   if(ctrl&&(k==='ArrowLeft'||k==='ArrowRight')&&sel&&(sel.type==='note'||sel.type==='rest')){e.preventDefault();const d=(k==='ArrowRight'?1:-1)*(e.shiftKey?1:0.25);
@@ -2063,7 +2066,7 @@ function renderProps(){
       <label class="field">템포 (♩=, 비우면 없음)<input id="mTempo" type="number" min="20" max="320" inputmode="numeric" value="${m.tempo||''}"></label>
       <div class="field">박자 (이 마디부터)<div class="tsrow"><input id="mTsN" type="number" min="1" max="16" value="${tsAt(mi)[0]}" aria-label="박자표 위 숫자"><b>/</b><select id="mTsD" aria-label="박자표 아래 숫자">${[2,4,8].map(d=>`<option${d===tsAt(mi)[1]?' selected':''}>${d}</option>`).join('')}</select></div></div>
       <div class="field">마디 폭 ([ 줄이기 · ] 늘리기)<div class="tsrow"><b>${Math.round((m.wf||1)*100)}%</b>${m.wf?'<button class="btn sm" data-act="wfreset">같은 폭으로</button>':''}</div></div>
-      <label class="field">이 줄 마디 수 (Ctrl+↑ 늘리기 · Ctrl+↓ 줄이기)<input id="mLineN" type="number" min="1" max="12" value="${(L&&(L.systems.find(s=>s.ms.includes(mi))||{ms:[]}).ms.length)||layoutPer}"></label>
+      <label class="field">이 줄 마디 수 (Ctrl+숫자 · Ctrl+↑↓)<input id="mLineN" type="number" min="1" max="12" value="${(L&&(L.systems.find(s=>s.ms.includes(mi))||{ms:[]}).ms.length)||layoutPer}"></label>
       ${m.cresc?`<label class="field">크레센도 길이 (마디)<input id="mCresc" type="number" min="0" max="64" value="${m.cresc}"></label>`:''}
       <label class="chk full"><input type="checkbox" id="mSim" ${m.simile?'checked':''}> 앞 마디 반복 (%) 기호로 표시</label>
     </div>
