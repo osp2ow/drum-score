@@ -555,7 +555,7 @@ function normMeasure(m,ti){
   if(Array.isArray(m.rb)){const rb=[...new Set(m.rb.map(Number).filter(x=>x>0&&x<ti.beats).map(x=>Math.round(x*1e6)/1e6))].sort((a,c)=>a-c);if(rb.length)o.rb=rb}
   const wfv=Math.round(+m.wf*100)/100;if(Number.isFinite(wfv)&&wfv>=0.4&&wfv<=3&&wfv!==1)o.wf=wfv;
   const tp=validTempo(m.tempo);if(tp)o.tempo=tp;
-  if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw))}
+  if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw));const cs=Math.round(+m.cs*100)/100;if(Number.isFinite(cs)&&cs)o.cs=Math.max(-10,Math.min(60,cs))}
   if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
   for(const k of ['segno','coda','ds','pageBreak','lineBreak']) if(m[k]) o[k]=true;
   if(m.barEnd==='double'){o.barEnd='double';if(m.autoDbl)o.autoDbl=true}
@@ -937,20 +937,36 @@ function crescDrag(e,svg,a){
     if(last)commit(()=>{const mm=score.measures[a];mm.cresc=last.cresc;if(last.cw)mm.cw=last.cw;else delete mm.cw});else render()};
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
 }
+// drag the start of a crescendo to shorten (or lengthen) it from the left
+function crescStartDrag(e,svg,a){
+  const m=score.measures[a];if(!m||!m.cresc)return;
+  const orig=m.cs,of=offOf(m,'cresc')||[0,0],pi=svg.dataset.p,base=L.mL[a].beatX[0]+0.2;
+  const e0=Math.min(score.measures.length-1,a+m.cresc-1),sys=L.systems.find(s=>s.ms.includes(a));if(!sys)return;
+  const endX=sys.ms.includes(e0)?Math.max(base+1.5,L.mL[e0].x+L.mL[e0].w-1.0+(m.cw||0)):sys.end-0.3;
+  let raf=0,last=null;
+  const mv=ev=>{const sv=pagesEl.querySelector(`svg.page[data-p="${pi}"]`)||svg,px=svgPoint(sv,ev).x-of[0];
+    last=Math.round(Math.max(-10,Math.min(endX-1.5-base,px-base))*10)/10;if(last)m.cs=last;else delete m.cs;
+    if(!raf)raf=requestAnimationFrame(()=>{raf=0;render()})};
+  const upf=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
+    if(orig)m.cs=orig;else delete m.cs;
+    if(last!=null)commit(()=>{const mm=score.measures[a];if(last)mm.cs=last;else delete mm.cs});else render()};
+  window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
+}
 function drawHairpin(h,sys,exp){
   const m=score.measures[h.a];let body='',hb=null;
   // full span across systems; opening grows with cumulative length
   const segs=[];
   for(const s of L.systems){
     const a=Math.max(h.a,s.ms[0]),e=Math.min(h.e,s.ms[s.ms.length-1]);if(a>e)continue;
-    const x1=a===h.a?L.mL[a].beatX[0]+0.2:L.mL[a].x+0.4, x2=e===h.e?Math.max(x1+1.5,L.mL[e].x+L.mL[e].w-1.0+(m.cw||0)):s.end-0.3;
-    segs.push({s,x1,x2,last:e===h.e});
+    const x1=a===h.a?L.mL[a].beatX[0]+0.2+(m.cs||0):L.mL[a].x+0.4, x2=e===h.e?Math.max(x1+1.5,L.mL[e].x+L.mL[e].w-1.0+(m.cw||0)):s.end-0.3;
+    segs.push({s,x1,x2,last:e===h.e,first:a===h.a});
   }
   const total=segs.reduce((t,g)=>t+(g.x2-g.x1),0)||1;let acc=0,o='';
   for(const g of segs){
     const o1=0.75*acc/total;acc+=g.x2-g.x1;const o2=0.75*acc/total;
     if(g.s===sys){const y=sys.top-7.7;body+=line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
-      if(g.last&&!exp&&sel&&sel.type==='el'&&sel.key==='cresc:'+h.a){const of=offOf(m,'cresc')||[0,0];o+=`<g class="hhandle" data-hh="${h.a}"><rect x="${r(g.x2+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(g.x2+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`}}
+      if(!exp&&sel&&sel.type==='el'&&sel.key==='cresc:'+h.a){const of=offOf(m,'cresc')||[0,0],hdl=(x,side)=>`<g class="hhandle" data-hh="${h.a}" data-side="${side}"><rect x="${r(x+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(x+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`;
+        if(g.first)o+=hdl(g.x1,'l');if(g.last)o+=hdl(g.x2,'r')}}
   }
   return body?elG('cresc:'+h.a,offOf(m,'cresc'),body,hb)+o:'';
 }
@@ -1261,7 +1277,7 @@ function deleteEl(key){
       sel={type:'note',m:o.m,id:o.n.id};
     }else{
       const m=o.meas,mi=o.m;
-      const fx={cresc:()=>{delete m.cresc;delete m.cw},sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
+      const fx={cresc:()=>{delete m.cresc;delete m.cw;delete m.cs},sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
       if(o.t==='ts'){const prev=tsAt(mi-1);setTimeout(()=>setTsFrom(mi,prev),0)}
       if(m.off)delete m.off[o.t];
       sel={type:'measure',m:mi};
@@ -1665,7 +1681,7 @@ pagesEl.addEventListener('pointerdown',e=>{
   if(!inputMode&&!e.shiftKey){const pi0=+svg.dataset.p,p0=svgPoint(svg,e),h0=headAt(pi0,p0);
     if(h0&&h0.d<0.95){e.preventDefault();select({type:'note',m:h0.m,id:h0.id});startSideDrag(e,pi0,p0,'note',h0.m,h0.id);return}}
   const hh=!inputMode&&e.target.closest('[data-hh]');
-  if(hh){e.preventDefault();crescDrag(e,svg,+hh.dataset.hh);return}
+  if(hh){e.preventDefault();if(hh.dataset.side==='l')crescStartDrag(e,svg,+hh.dataset.hh);else crescDrag(e,svg,+hh.dataset.hh);return}
   const elx=!inputMode&&e.target.closest('[data-el]');
   if(elx){
     e.preventDefault();const key=elx.dataset.el,o=elOwner(key);if(!o)return;
@@ -1861,9 +1877,11 @@ document.addEventListener('keydown',e=>{
     if(!sel){toast('줄을 나눌 마디를 먼저 누르세요');return}
     e.preventDefault();applyPalette('lnbrk');const m=score.measures[selMeasures().pop()];toast(m&&m.lineBreak?'다음 마디부터 아랫줄로 내렸어요':'줄 나누기를 풀었어요');return;
   }
-  if((code==='BracketLeft'||code==='BracketRight'||k==='['||k===']')&&sel&&sel.type==='el'&&sel.key.startsWith('cresc:')){
-    e.preventDefault();const a=+sel.key.slice(6),d=(code==='BracketRight'||k===']')?0.5:-0.5;
-    commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-60,Math.min(20,(m.cw||0)+d))*10)/10;if(v)m.cw=v;else delete m.cw});return;
+  if((code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'||k==='{'||k==='}')&&sel&&sel.type==='el'&&sel.key.startsWith('cresc:')){
+    e.preventDefault();const a=+sel.key.slice(6),right=(code==='BracketRight'||k===']'||k==='}');
+    // [ ] move the end, Shift+[ ] move the start
+    if(e.shiftKey)commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-10,Math.min(60,(m.cs||0)+(right?0.5:-0.5)))*10)/10;if(v)m.cs=v;else delete m.cs});
+    else commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-60,Math.min(20,(m.cw||0)+(right?0.5:-0.5)))*10)/10;if(v)m.cw=v;else delete m.cw});return;
   }
   if(code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'){
     if(!sel){toast('넓히거나 줄일 마디를 먼저 누르세요');return}
