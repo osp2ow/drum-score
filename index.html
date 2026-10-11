@@ -2196,7 +2196,7 @@ function applyManual(text){
 }
 $('#manualApply').onclick=()=>{const t=$('#manualJson').value.trim();if(!t){toast('Claude·ChatGPT의 답을 먼저 붙여넣어 주세요');return}if(applyManual(t))$('#manualJson').value=''};
 $('#copyPrompt').onclick=async()=>{
-  const txt=promptFor(true)+'\n\nReply with only the JSON in a single ```json code block, with no explanation.';
+  const txt='Standing instructions for this whole conversation: every time I send an image of drum sheet music, transcribe it exactly as described below. If a message has no image (like this one), just reply "준비됐어요. 캡처를 보내 주세요."\n\n'+promptFor(true)+'\n\nReply with only the JSON in a single ```json code block, with no explanation.';
   try{await navigator.clipboard.writeText(txt);toast('지시문을 복사했어요. 프로젝트 지침에 붙여넣어 주세요')}
   catch(e){const o=$('#promptOut');o.hidden=false;o.value=txt;o.focus();o.select();toast('자동 복사가 안 돼요. 선택된 글을 Ctrl+C 해 주세요')}
 };
