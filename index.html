@@ -149,7 +149,11 @@ h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.
 .job .thumb img{width:100%;height:100%;object-fit:cover;object-position:left center;display:block}
 .jtitle{font-weight:600;font-size:12.5px}
 .jstat{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.jstat.ok{color:var(--ok)} .jstat.err{color:var(--danger)} .jstat.run{color:var(--accent)}
+.jstat.ok{color:var(--ok)} .jstat.err{color:var(--danger)} .jstat.run{color:var(--accent)} .jstat.manual{color:var(--accent)}
+.steps{margin:0;padding-left:18px;font-size:12.5px;display:flex;flex-direction:column;gap:7px;line-height:1.5}
+.steps a{color:var(--accent)}
+.psec textarea{border:1px solid var(--line);border-radius:6px;padding:7px 8px;background:var(--surface);color:var(--ink);font:12px var(--mono);width:100%;box-sizing:border-box;resize:vertical;min-height:64px}
+.job .thumb.nopic{cursor:default;display:flex;align-items:center;justify-content:center;font-size:10.5px;color:var(--muted);background:var(--surface)}
 .jact{grid-column:2;display:flex;gap:5px;flex-wrap:wrap}
 .job .big{grid-column:1/-1;width:100%;border:1px solid var(--line);border-radius:5px;background:#fff;margin-top:3px}
 .spin{display:inline-block;width:9px;height:9px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-1px;margin-right:4px}
@@ -315,9 +319,20 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <p>캡처 후 <kbd>Ctrl</kbd>+<kbd>V</kbd> 하거나 이미지를 끌어다 놓으면, 바로 악보로 바꿔서 맨 뒤에 이어 붙여요.</p>
             <button class="btn" id="pickImg">이미지 파일 선택</button>
           </div>
+          <div class="psec" id="subBox" hidden>
+            <div class="psec-h"><b>내 구독으로 변환</b><small>무료</small></div>
+            <ol class="steps">
+              <li><b>처음 한 번만:</b> <button class="btn sm" id="copyPrompt">변환 지시문 복사</button> 를 눌러 Claude 프로젝트(또는 ChatGPT 프로젝트)의 <b>지침</b>에 붙여넣어 두세요. <a href="https://claude.ai/projects" target="_blank" rel="noopener">Claude 프로젝트</a> · <a href="https://chatgpt.com" target="_blank" rel="noopener">ChatGPT</a></li>
+              <li>캡처를 여기에 <kbd>Ctrl</kbd>+<kbd>V</kbd> 한 다음, 그 프로젝트 채팅에도 <kbd>Ctrl</kbd>+<kbd>V</kbd> 해서 보내요.</li>
+              <li>답으로 온 코드를 복사해서 이 화면에서 <kbd>Ctrl</kbd>+<kbd>V</kbd> 하면 악보로 들어가요. (아래 칸에 붙여넣고 버튼을 눌러도 돼요)</li>
+            </ol>
+            <textarea id="promptOut" rows="4" readonly hidden aria-label="변환 지시문"></textarea>
+            <textarea id="manualJson" rows="3" placeholder='Claude·ChatGPT의 답 붙여넣기 ({"measures": …})' aria-label="변환 결과 붙여넣기"></textarea>
+            <div class="btnrow"><button class="btn sm primary" id="manualApply">악보에 넣기</button></div>
+          </div>
           <div class="psec" id="apiBox" hidden>
-            <div class="psec-h"><b>Anthropic API 키</b><small>Claude 밖에서 쓸 때</small></div>
-            <p class="hint">Claude 앱 밖(예: GitHub 주소)에서는 캡처 변환에 내 API 키가 필요해요. 키는 이 브라우저에만 저장되고, 변환할 때마다 API 사용료가 나가요.</p>
+            <div class="psec-h"><b>API 키로 자동 변환</b><small>선택 · 유료</small></div>
+            <p class="hint">Anthropic API 키를 넣으면 붙여넣는 즉시 자동으로 변환돼요. 구독과 별개로 변환할 때마다 API 사용료가 나가요. 키는 이 브라우저에만 저장돼요.</p>
             <label class="field">API 키<input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
             <label class="field">모델<select id="apiModel"><option value="claude-sonnet-5-5">Claude Sonnet 5.5 (빠르고 저렴)</option><option value="claude-opus-5-5">Claude Opus 5.5 (더 정확, 더 비쌈)</option></select></label>
             <div class="btnrow"><button class="btn sm primary" id="apiSave">저장</button></div>
@@ -2004,9 +2019,9 @@ function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('sh
 const samplePromise=capUse('sample');
 samplePromise.then(async s=>{
   let ok=false;if(s){try{ok=!!(await s.limits()).images}catch(e){}}
-  if(!ok){$('#apiBox').hidden=false;$('#apiKey').value=lsGet('jds:apikey')||'';$('#apiModel').value=lsGet('jds:model')||'claude-sonnet-5-5';updateApiNote()}
+  if(!ok){$('#apiBox').hidden=false;$('#subBox').hidden=false;$('#apiKey').value=lsGet('jds:apikey')||'';$('#apiModel').value=lsGet('jds:model')||'claude-sonnet-5-5';updateApiNote()}
 });
-function updateApiNote(){$('#importUnavailable').hidden=!!lsGet('jds:apikey')}
+function updateApiNote(){$('#importUnavailable').hidden=true}
 $('#apiSave').onclick=()=>{const k=$('#apiKey').value.trim();if(k)lsSet('jds:apikey',k);else lsDel('jds:apikey');lsSet('jds:model',$('#apiModel').value);updateApiNote();toast(k?'API 키를 이 브라우저에 저장했어요':'API 키를 지웠어요')};
 // shrink the picture before sending (about 1.2 megapixels is plenty to read notes)
 async function imageToBase64(file){
@@ -2042,10 +2057,10 @@ function enqueue(files){
   return true;
 }
 function isBlank(m){return !m.notes.length&&!m.simile&&!m.lyrics.length}
-function promptFor(){
-  const [n,d]=tsAt(score.measures.length-1);
+function promptFor(generic){
+  const [n,d]=generic?[4,4]:tsAt(score.measures.length-1);
   const fresh=score.pristine||score.measures.every(isBlank);
-  const hint=fresh?`if the image shows a time signature use it, otherwise assume ${n}/${d}`:`the score being built is currently in ${n}/${d}; if the image shows a different time signature, use the image's and report it in "timeSig"`;
+  const hint=generic?'use the time signature printed in the image and report it in "timeSig"; if none is printed, read it as 4/4 but set "timeSig": null':fresh?`if the image shows a time signature use it, otherwise assume ${n}/${d}`:`the score being built is currently in ${n}/${d}; if the image shows a different time signature, use the image's and report it in "timeSig"`;
   return `You are transcribing an image of DRUM SET sheet music into JSON. It usually shows about 4 measures (1 or 2 staff systems).
 
 How to read the 5-line percussion staff (standard drum-kit notation; "line 1" is the bottom line):
@@ -2097,7 +2112,7 @@ async function processQueue(){
   const s=await samplePromise;
   job.ctl=new AbortController();
   if(!s){
-    if(!lsGet('jds:apikey')){job.status='err';job.msg='Claude 밖에서는 아래에 Anthropic API 키를 넣어야 변환할 수 있어요.';busy=false;renderQueue();return}
+    if(!lsGet('jds:apikey')){job.status='manual';job.msg='Claude·ChatGPT에서 받은 답을 Ctrl+V 하면 이 캡처 자리에 들어가요';busy=false;renderQueue();processQueue();return}
     try{applyImport(job,await convertWithApi(job))}
     catch(e){job.status='err';job.code=e&&e.code;
       job.msg=e&&e.code==='bad_key'?'API 키가 맞지 않아요. 다시 확인해 주세요.':e&&e.name==='AbortError'?'변환을 멈췄어요.':e&&e.code==='rate_limited'?'요청이 많아요. 잠시 뒤 다시 시도해 주세요.':e&&e.code==='invalid_json'?'악보를 제대로 읽지 못했어요. 다시 시도해 주세요.':'변환하지 못했어요. 인터넷 연결과 API 키를 확인해 주세요.'}
@@ -2152,10 +2167,10 @@ function jobStatText(j){
 function updateJobStat(j){const el=document.querySelector(`.job[data-j="${j.id}"] .jstat`);if(el)el.innerHTML=jobStatText(j)}
 function renderQueue(){
   $('#queue').innerHTML=queue.slice().reverse().map(j=>`<li class="job" data-j="${j.id}">
-    <button class="thumb" data-a="big" aria-label="캡처 ${j.id} 원본 ${j.open?'접기':'크게 보기'}"><img src="${j.url}" alt=""></button>
+    ${j.url?`<button class="thumb" data-a="big" aria-label="캡처 ${j.id} 원본 ${j.open?'접기':'크게 보기'}"><img src="${j.url}" alt=""></button>`:'<span class="thumb nopic">붙여넣음</span>'}
     <div><div class="jtitle">캡처 ${j.id}</div><div class="jstat ${j.status}">${jobStatText(j)}</div></div>
-    <div class="jact">${j.status==='run'?'<button class="btn sm" data-a="stop">멈추기</button>':''}${j.status==='err'&&j.code!=='not_granted'?'<button class="btn sm" data-a="retry">다시 시도</button>':''}${j.status==='ok'?'<button class="btn sm" data-a="go">해당 마디로</button><button class="btn sm" data-a="retry">다시 변환</button>':''}${j.status!=='run'?'<button class="btn sm" data-a="rm">지우기</button>':''}</div>
-    ${j.open?`<img class="big" src="${j.url}" alt="캡처 ${j.id} 원본">`:''}
+    <div class="jact">${j.status==='run'?'<button class="btn sm" data-a="stop">멈추기</button>':''}${j.status==='err'&&j.code!=='not_granted'?'<button class="btn sm" data-a="retry">다시 시도</button>':''}${j.status==='ok'?'<button class="btn sm" data-a="go">해당 마디로</button>'+(j.url&&j.via!=='manual'?'<button class="btn sm" data-a="retry">다시 변환</button>':''):''}${j.status!=='run'?'<button class="btn sm" data-a="rm">지우기</button>':''}</div>
+    ${j.open&&j.url?`<img class="big" src="${j.url}" alt="캡처 ${j.id} 원본">`:''}
   </li>`).join('');
 }
 setInterval(()=>{const j=queue.find(x=>x.status==='run');if(j)updateJobStat(j)},1000);
@@ -2167,15 +2182,32 @@ $('#queue').addEventListener('click',e=>{
     case 'stop':j.ctl&&j.ctl.abort();break;
     case 'retry':j.status='wait';j.msg='';j.range=null;renderQueue();processQueue();break;
     case 'go':if(j.range&&score.measures[j.range[0]-1])select({type:'measure',m:j.range[0]-1},true);break;
-    case 'rm':URL.revokeObjectURL(j.url);queue.splice(queue.indexOf(j),1);renderQueue();break;
+    case 'rm':if(j.url)URL.revokeObjectURL(j.url);queue.splice(queue.indexOf(j),1);renderQueue();break;
   }
 });
+function applyManual(text){
+  let data;try{data=parseJsonLoose(text)}catch(e){toast('답에서 악보 코드를 찾지 못했어요. 코드 부분을 통째로 복사해 주세요');return false}
+  let job=queue.find(j=>j.status==='manual');
+  if(!job){job={id:++jobSeq,file:null,url:null,status:'run',msg:'',open:false};queue.push(job)}
+  job.via='manual';applyImport(job,data);
+  if(view!=='score')showView('score');showDock('cap');renderQueue();
+  toast(job.status==='ok'?job.msg:job.msg||'악보를 넣지 못했어요');
+  return job.status==='ok';
+}
+$('#manualApply').onclick=()=>{const t=$('#manualJson').value.trim();if(!t){toast('Claude·ChatGPT의 답을 먼저 붙여넣어 주세요');return}if(applyManual(t))$('#manualJson').value=''};
+$('#copyPrompt').onclick=async()=>{
+  const txt=promptFor(true)+'\n\nReply with only the JSON in a single ```json code block, with no explanation.';
+  try{await navigator.clipboard.writeText(txt);toast('지시문을 복사했어요. 프로젝트 지침에 붙여넣어 주세요')}
+  catch(e){const o=$('#promptOut');o.hidden=false;o.value=txt;o.focus();o.select();toast('자동 복사가 안 돼요. 선택된 글을 Ctrl+C 해 주세요')}
+};
 $('#pickImg').onclick=()=>$('#fileImg').click();
 $('#fileImg').onchange=e=>{enqueue(e.target.files);e.target.value=''};
 document.addEventListener('paste',e=>{
   const files=[...(e.clipboardData&&e.clipboardData.files||[])];
   if(files.some(f=>f.type.startsWith('image/'))){e.preventDefault();enqueue(files);return}
   const t=e.target;if(t&&t.closest&&t.closest('input,textarea,select'))return;
+  const txt=e.clipboardData&&e.clipboardData.getData('text')||'';
+  if(/"measures"\s*:/.test(txt)){e.preventDefault();applyManual(txt);return}
   if(view==='score'&&clipMeasure&&sel){e.preventDefault();const mi=sel.m;commit(()=>{const c=normMeasure(JSON.parse(clipMeasure),tiAt(mi));c.notes.forEach(n=>n.id=nid());const keep=score.measures[mi];if(keep.ts)c.ts=keep.ts;else delete c.ts;score.measures[mi]=c});toast(`마디 ${mi+1}에 붙여넣었어요`)}
 });
 let dragDepth=0;
