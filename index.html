@@ -241,6 +241,8 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .pad .ic svg{width:15px;height:15px;vertical-align:middle}
 .t-lyr{cursor:pointer}
 .editing{visibility:hidden}
+.hhandle{cursor:ew-resize}
+.hhandle circle{fill:var(--paper);stroke:var(--sel);stroke-width:.2}
 .paper-bg{fill:var(--paper)}
 .frame{fill:none;stroke:#9aa0aa;stroke-width:.1;stroke-dasharray:.6 .4}
 .brk{fill:none;stroke:var(--brk);stroke-width:.2}
@@ -553,7 +555,8 @@ function normMeasure(m,ti){
   if(Array.isArray(m.rb)){const rb=[...new Set(m.rb.map(Number).filter(x=>x>0&&x<ti.beats).map(x=>Math.round(x*1e6)/1e6))].sort((a,c)=>a-c);if(rb.length)o.rb=rb}
   const wfv=Math.round(+m.wf*100)/100;if(Number.isFinite(wfv)&&wfv>=0.4&&wfv<=3&&wfv!==1)o.wf=wfv;
   const tp=validTempo(m.tempo);if(tp)o.tempo=tp;
-  if(Number.isInteger(+m.cresc)&&+m.cresc>0)o.cresc=Math.min(64,+m.cresc);
+  if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw))}
+  if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
   for(const k of ['segno','coda','ds','pageBreak','lineBreak']) if(m[k]) o[k]=true;
   if(m.barEnd==='double'){o.barEnd='double';if(m.autoDbl)o.autoDbl=true}
   return o;
@@ -774,6 +777,14 @@ function natural(mi,vl1,vl2,ti){
 }
 function headerH(){return txs('title').sz*1.2+(score.subtitle?txs('sub').sz*1.35:0)+txs('cmp').sz*1.62+1.5}
 const hasMarks=m=>m.section||m.segno||m.coda||m.ds||m.tempo;
+let layoutPer=4;
+function setLineN(mi,n){
+  const sys=L&&L.systems.find(s=>s.ms.includes(mi));if(!sys)return;const first=sys.ms[0];n=Math.max(1,Math.min(12,n));
+  if(first+n>score.measures.length&&n>sys.ms.length){toast('더 끌어올 마디가 없어요');return}
+  commit(()=>{const fm=score.measures[first];if(n===layoutPer)delete fm.lineN;else fm.lineN=n;
+    for(let k=first;k<first+n-1&&k<score.measures.length;k++){delete score.measures[k].lineBreak}});
+  toast(`이 줄 ${n}마디`);
+}
 function computeLayout(){
   setScale(1);
   const N=score.measures.length;
@@ -787,19 +798,21 @@ function computeLayout(){
   const pack=()=>{
   const availAll=CONTENT_W-CLEF_W-TS_W;
   const per=score.mpl>0?score.mpl:Math.max(1,Math.min(8,Math.floor(availAll/Math.max(...NAT.map(n=>n.w)))));
+  layoutPer=per;
   const systems=[];let i=0;
   while(i<N){
     // every line starts at the same x so measures line up in columns and share one width
     const first=!systems.length, sx=MARGIN, hw=CLEF_W+TS_W, avail=MARGIN+CONTENT_W-sx-hw;
     let j=i,sum=0;
     const brkAt=k=>score.measures[k].pageBreak||score.measures[k].lineBreak;
-    if(per>0){while(j<N&&j-i<per){sum+=NAT[j].w;j++;if(brkAt(j-1))break}}
+    const pl=score.measures[i].lineN||per; // a line can carry its own measure count (Ctrl+↑/↓)
+    if(pl>0){while(j<N&&j-i<pl){sum+=NAT[j].w;j++;if(brkAt(j-1))break}}
     else{while(j<N&&(j===i||sum+NAT[j].w<=avail)){sum+=NAT[j].w;j++;if(brkAt(j-1))break}}
     const ms=[];for(let k=i;k<j;k++)ms.push(k);
     const last=j>=N;
     // every measure in a line gets the same width (times its own [ ] width factor), whatever is written in it
     const wf=k=>score.measures[k].wf||1,sumwf=ms.reduce((a,k)=>a+wf(k),0);
-    const unit=avail/Math.max(sumwf,per);
+    const unit=avail/Math.max(sumwf,pl);
     const widths={};let tot=0;for(const k of ms){widths[k]=unit*wf(k);tot+=widths[k]}
     const sys={ms,first,sx,hw,widths,end:MARGIN+CONTENT_W,brk:!!score.measures[j-1].pageBreak};
     if(tot<avail-0.01)sys.end=sx+hw+tot;
@@ -905,24 +918,41 @@ function renderSystem(sys,exp){
   }
   for(const mi of sys.ms)o+=renderMeasure(mi,sys,exp);
   if(score.showNums&&sys.ms[0]>0){const sm=score.measures[sys.ms[0]];o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(sm.section?top-2.2-txs('sec').sz*1.56-0.5:top-1.2)}">${sys.ms[0]+1}</text>`}
-  for(const h of sys.hairs)o+=drawHairpin(h,sys);
+  for(const h of sys.hairs)o+=drawHairpin(h,sys,exp);
   return o;
 }
-function drawHairpin(h,sys){
+// drag the end of a crescendo: it can grow or shrink inside its line and spill into the next measures
+function crescDrag(e,svg,a){
+  const m=score.measures[a];if(!m||!m.cresc)return;
+  const orig={cresc:m.cresc,cw:m.cw},of=offOf(m,'cresc')||[0,0];
+  const e0=Math.min(score.measures.length-1,a+m.cresc-1),sys=L.systems.find(s=>s.ms.includes(e0));if(!sys)return;
+  let raf=0,last=null;
+  const pi=svg.dataset.p;
+  const calc=ev=>{const sv=pagesEl.querySelector(`svg.page[data-p="${pi}"]`)||svg,px=svgPoint(sv,ev).x-of[0];const cand=sys.ms.filter(k=>k>=a);if(!cand.length)return null;
+    let k=cand.find(k=>L.mL[k].x+L.mL[k].w>=px);if(k==null)k=cand[cand.length-1];
+    const de=L.mL[k].x+L.mL[k].w-1.0;return {cresc:k-a+1,cw:Math.round(Math.max(-(L.mL[k].w-1.5),Math.min(3,px-de))*10)/10}};
+  const mv=ev=>{last=calc(ev);if(!last)return;m.cresc=last.cresc;if(last.cw)m.cw=last.cw;else delete m.cw;if(!raf)raf=requestAnimationFrame(()=>{raf=0;render()})};
+  const upf=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
+    m.cresc=orig.cresc;if(orig.cw)m.cw=orig.cw;else delete m.cw;
+    if(last)commit(()=>{const mm=score.measures[a];mm.cresc=last.cresc;if(last.cw)mm.cw=last.cw;else delete mm.cw});else render()};
+  window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
+}
+function drawHairpin(h,sys,exp){
   const m=score.measures[h.a];let body='',hb=null;
   // full span across systems; opening grows with cumulative length
   const segs=[];
   for(const s of L.systems){
     const a=Math.max(h.a,s.ms[0]),e=Math.min(h.e,s.ms[s.ms.length-1]);if(a>e)continue;
-    const x1=a===h.a?L.mL[a].beatX[0]+0.2:L.mL[a].x+0.4, x2=e===h.e?L.mL[e].x+L.mL[e].w-1.0:s.end-0.3;
-    segs.push({s,x1,x2});
+    const x1=a===h.a?L.mL[a].beatX[0]+0.2:L.mL[a].x+0.4, x2=e===h.e?Math.max(x1+1.5,L.mL[e].x+L.mL[e].w-1.0+(m.cw||0)):s.end-0.3;
+    segs.push({s,x1,x2,last:e===h.e});
   }
   const total=segs.reduce((t,g)=>t+(g.x2-g.x1),0)||1;let acc=0,o='';
   for(const g of segs){
     const o1=0.75*acc/total;acc+=g.x2-g.x1;const o2=0.75*acc/total;
-    if(g.s===sys){const y=sys.top-7.7;body+=line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2]}
+    if(g.s===sys){const y=sys.top-7.7;body+=line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
+      if(g.last&&!exp&&sel&&sel.type==='el'&&sel.key==='cresc:'+h.a){const of=offOf(m,'cresc')||[0,0];o+=`<g class="hhandle" data-hh="${h.a}"><rect x="${r(g.x2+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(g.x2+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`}}
   }
-  return body?elG('cresc:'+h.a,offOf(m,'cresc'),body,hb):'';
+  return body?elG('cresc:'+h.a,offOf(m,'cresc'),body,hb)+o:'';
 }
 function renderMeasure(mi,sys,exp){
   const m=score.measures[mi],ml=L.mL[mi],top=sys.top,N=score.measures.length,ti=ml.ti;
@@ -1231,7 +1261,7 @@ function deleteEl(key){
       sel={type:'note',m:o.m,id:o.n.id};
     }else{
       const m=o.meas,mi=o.m;
-      const fx={cresc:()=>delete m.cresc,sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
+      const fx={cresc:()=>{delete m.cresc;delete m.cw},sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
       if(o.t==='ts'){const prev=tsAt(mi-1);setTimeout(()=>setTsFrom(mi,prev),0)}
       if(m.off)delete m.off[o.t];
       sel={type:'measure',m:mi};
@@ -1634,6 +1664,8 @@ pagesEl.addEventListener('pointerdown',e=>{
   // a click right on a notehead always picks the note, even when a mark (accent, o, slash…) sits close by
   if(!inputMode&&!e.shiftKey){const pi0=+svg.dataset.p,p0=svgPoint(svg,e),h0=headAt(pi0,p0);
     if(h0&&h0.d<0.95){e.preventDefault();select({type:'note',m:h0.m,id:h0.id});startSideDrag(e,pi0,p0,'note',h0.m,h0.id);return}}
+  const hh=!inputMode&&e.target.closest('[data-hh]');
+  if(hh){e.preventDefault();crescDrag(e,svg,+hh.dataset.hh);return}
   const elx=!inputMode&&e.target.closest('[data-el]');
   if(elx){
     e.preventDefault();const key=elx.dataset.el,o=elOwner(key);if(!o)return;
@@ -1819,6 +1851,7 @@ document.addEventListener('keydown',e=>{
   if(ctrl&&letter==='c'){if(sel&&sel.type!=='note'){clipMeasure=JSON.stringify(score.measures[sel.m]);toast(`마디 ${sel.m+1}을 복사했어요`);e.preventDefault()}return}
   if(ctrl&&(k==='ArrowLeft'||k==='ArrowRight')&&sel&&(sel.type==='note'||sel.type==='rest')){e.preventDefault();const d=(k==='ArrowRight'?1:-1)*(e.shiftKey?1:0.25);
     if(sel.type==='note'){const f=findNote(sel.id);if(f)setDx('note',f.m,sel.id,curDx('note',f.m,sel.id)+d)}else setDx('rest',sel.m,sel.t,curDx('rest',sel.m,sel.t)+d);return}
+  if(ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type!=='el'&&sel.m!=null){e.preventDefault();const sys=L.systems.find(s=>s.ms.includes(sel.m));if(sys)setLineN(sel.m,k==='ArrowUp'?sys.ms.length+1:Math.max(1,sys.ms.length-1));return}
   if(ctrl&&(k==='Delete'||k==='Backspace')){if(sel){e.preventDefault();deleteMeasures(selMeasures())}return}
   if(ctrl||e.altKey)return;
   const sn=getSelNote();
@@ -1827,6 +1860,10 @@ document.addEventListener('keydown',e=>{
   if((k==='Enter'||code==='Enter'||code==='NumpadEnter')&&!e.shiftKey&&!inputMode){
     if(!sel){toast('줄을 나눌 마디를 먼저 누르세요');return}
     e.preventDefault();applyPalette('lnbrk');const m=score.measures[selMeasures().pop()];toast(m&&m.lineBreak?'다음 마디부터 아랫줄로 내렸어요':'줄 나누기를 풀었어요');return;
+  }
+  if((code==='BracketLeft'||code==='BracketRight'||k==='['||k===']')&&sel&&sel.type==='el'&&sel.key.startsWith('cresc:')){
+    e.preventDefault();const a=+sel.key.slice(6),d=(code==='BracketRight'||k===']')?0.5:-0.5;
+    commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-60,Math.min(20,(m.cw||0)+d))*10)/10;if(v)m.cw=v;else delete m.cw});return;
   }
   if(code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'){
     if(!sel){toast('넓히거나 줄일 마디를 먼저 누르세요');return}
@@ -2008,6 +2045,7 @@ function renderProps(){
       <label class="field">템포 (♩=, 비우면 없음)<input id="mTempo" type="number" min="20" max="320" inputmode="numeric" value="${m.tempo||''}"></label>
       <div class="field">박자 (이 마디부터)<div class="tsrow"><input id="mTsN" type="number" min="1" max="16" value="${tsAt(mi)[0]}" aria-label="박자표 위 숫자"><b>/</b><select id="mTsD" aria-label="박자표 아래 숫자">${[2,4,8].map(d=>`<option${d===tsAt(mi)[1]?' selected':''}>${d}</option>`).join('')}</select></div></div>
       <div class="field">마디 폭 ([ 줄이기 · ] 늘리기)<div class="tsrow"><b>${Math.round((m.wf||1)*100)}%</b>${m.wf?'<button class="btn sm" data-act="wfreset">같은 폭으로</button>':''}</div></div>
+      <label class="field">이 줄 마디 수 (Ctrl+↑ 늘리기 · Ctrl+↓ 줄이기)<input id="mLineN" type="number" min="1" max="12" value="${(L&&(L.systems.find(s=>s.ms.includes(mi))||{ms:[]}).ms.length)||layoutPer}"></label>
       ${m.cresc?`<label class="field">크레센도 길이 (마디)<input id="mCresc" type="number" min="0" max="64" value="${m.cresc}"></label>`:''}
       <label class="chk full"><input type="checkbox" id="mSim" ${m.simile?'checked':''}> 앞 마디 반복 (%) 기호로 표시</label>
     </div>
@@ -2046,7 +2084,8 @@ $('#dock-prop').addEventListener('change',e=>{
   if(t.id==='mSection'){commit(()=>{sectionOn(mi,str(t.value).slice(0,20))});return}
   if(t.id==='mTempo'){const v=validTempo(t.value);commit(()=>{const m=score.measures[mi];if(v)m.tempo=v;else delete m.tempo});return}
   if(t.id==='mTsN'||t.id==='mTsD'){const ts=[Math.round(+$('#mTsN').value),+$('#mTsD').value];if(!isTs(ts)){toast('위 숫자는 1~16 사이로 넣어 주세요');return}if(!sameTs(ts,tsAt(mi)))setTsFrom(mi,ts);return}
-  if(t.id==='mCresc'){const v=Math.round(+t.value);commit(()=>{const m=score.measures[mi];if(v>0)m.cresc=Math.min(64,v);else delete m.cresc});return}
+  if(t.id==='mCresc'){const v=Math.round(+t.value);commit(()=>{const m=score.measures[mi];delete m.cw;if(v>0)m.cresc=Math.min(64,v);else delete m.cresc});return}
+  if(t.id==='mLineN'){const v=Math.round(+t.value);if(v>=1&&v<=12)setLineN(mi,v);return}
   if(t.id==='mSim'){commit(()=>{score.measures[mi].simile=t.checked})}
 });
 
