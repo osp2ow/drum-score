@@ -304,7 +304,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
       <div id="unitBtns" style="display:flex;gap:2px" role="group" aria-label="입력 단위"></div>
       <div class="sep"></div>
       <button class="ib" id="tbAccent" title="악센트 (&gt;)" aria-label="악센트"><span class="gl">&#xE4A0;</span></button>
-      <button class="ib" id="tbGhost" title="고스트 노트 ((" aria-label="고스트 노트"><span class="gl" style="font-size:19px">&#xE0A3;</span></button>
+      <button class="ib" id="tbGhost" title="고스트 노트 (Z)" aria-label="고스트 노트"><span class="gl" style="font-size:19px">&#xE0A3;</span></button>
       <div class="sep"></div>
       <button class="ib" id="tbLyric" title="가사 입력 (L)"><span class="tb-label">가사</span><kbd>L</kbd></button>
       <div class="sep"></div>
@@ -387,7 +387,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <kbd>← →</kbd><span>커서 이동 / 이전·다음 음표</span>
             <kbd>↑ ↓</kbd><span>선택한 음표를 위·아래 악기로 바꾸기</span>
             <kbd>&gt;</kbd><span>악센트 (Shift+.)</span>
-            <kbd>(</kbd><span>고스트 노트 (Shift+9)</span>
+            <kbd>Z</kbd><span>고스트 노트 켜기 / 끄기</span>
             <kbd>기호 끌기</kbd><span>악센트·크레센도·템포 등 기호는 눌러서 고르고 끌어서 옮겨요. 고른 뒤 방향키로 조금씩, Del로 지우기</span>
             <kbd>L</kbd><span>가사 — 스페이스로 다음 음표, Enter로 끝</span>
             <kbd>Del</kbd><span>음표 지우기 / 마디 비우기</span>
@@ -1240,7 +1240,7 @@ function renderChrome(){
     +`<button class="ib" data-trip="1" aria-pressed="${inputTrip}" title="셋잇단 (Ctrl+3)"><span class="tb-label" style="font-weight:700">3</span><span class="tb-label">잇단</span></button>`;
   const sn=getSelNote(),active=sn?sn.n.i:inputInst;
   const an=artNote();
-  $('#pads').innerHTML=[['accent','악센트','>','Shift+.'],['ghost','고스트','( )','Shift+9']].map(([k,nm,ic,key])=>`<button class="pad art" data-art="${k}" aria-pressed="${!!(an&&an.n.a===k)}" title="${nm} (${key})"><span class="ic">${ic}</span><span class="nm">${nm}</span><span class="k">${key}</span></button>`).join('')+PAD_ORDER.map(id=>{const ins=INST[id];return `<button class="pad${ins.v===2?' v2':''}" data-inst="${id}" aria-pressed="${id===active}" title="${ins.name} (${ins.key.toUpperCase()})"><span class="ic">${ins.head==='cs'?'<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 3.4V12.6M4 5.7 12 10.3M4 10.3 12 5.7" stroke="currentColor" stroke-width="1.3"/></svg>':ins.head==='x'?G.headX:ins.head==='cx'?G.headCX:G.headBlack}</span><span class="nm">${ins.name}</span><span class="k">${ins.key.toUpperCase()}</span></button>`}).join('');
+  $('#pads').innerHTML=[['accent','악센트','>','Shift+.'],['ghost','고스트','( )','Z']].map(([k,nm,ic,key])=>`<button class="pad art" data-art="${k}" aria-pressed="${!!(an&&an.n.a===k)}" title="${nm} (${key})"><span class="ic">${ic}</span><span class="nm">${nm}</span><span class="k">${key}</span></button>`).join('')+PAD_ORDER.map(id=>{const ins=INST[id];return `<button class="pad${ins.v===2?' v2':''}" data-inst="${id}" aria-pressed="${id===active}" title="${ins.name} (${ins.key.toUpperCase()})"><span class="ic">${ins.head==='cs'?'<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 3.4V12.6M4 5.7 12 10.3M4 10.3 12 5.7" stroke="currentColor" stroke-width="1.3"/></svg>':ins.head==='x'?G.headX:ins.head==='cx'?G.headCX:G.headBlack}</span><span class="nm">${ins.name}</span><span class="k">${ins.key.toUpperCase()}</span></button>`}).join('');
   $('#tbAccent').disabled=$('#tbGhost').disabled=!sn;$('#tbDel').disabled=!sel||sel.type==='rest';
   $('#tbUndo').disabled=!hist.u.length;$('#tbRedo').disabled=!hist.r.length;
   showZoom();
@@ -1925,6 +1925,7 @@ document.addEventListener('keydown',e=>{
   if(k==='Escape'){if(inputMode)setInputMode(false);else if(sel)select(null);return}
   if(letter==='r'&&e.shiftKey&&!inputMode&&sel&&(sel.type==='measure'||sel.type==='range')){e.preventDefault();insertMeasure(sel.m+1,sel.m);return}
   if(letter==='l'&&!e.shiftKey){e.preventDefault();startLyrics();return}
+  if(letter==='z'&&!e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'ghost');else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
   const inst=letter&&INSTS.find(i=>i.key===letter);
   if(inst){
     e.preventDefault();inputInst=inst.id;
