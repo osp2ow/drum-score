@@ -124,7 +124,8 @@ h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.
 .lyric-input[type=number]{-moz-appearance:textfield}
 .drop-veil{position:absolute;inset:10px;border:2px dashed var(--accent);border-radius:12px;background:color-mix(in srgb,var(--accent-weak) 80%,transparent);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px;color:var(--accent);z-index:8;pointer-events:none}
 /* percussion panel */
-.perc{background:var(--chrome);border-top:1px solid var(--line)}
+.perc{background:var(--chrome);border-top:1px solid var(--line);min-width:0;overflow:hidden}
+.work>*{min-width:0}
 .perc-h{display:flex;align-items:center;gap:8px;padding:3px 10px}
 .perc-h .t{font-weight:600;font-size:12.5px}
 .perc-h .hint{font-size:12px}
@@ -252,7 +253,9 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .paper-bg{fill:var(--paper)}
 .frame{fill:none;stroke:#9aa0aa;stroke-width:.1;stroke-dasharray:.6 .4}
 .brk{fill:none;stroke:var(--brk);stroke-width:.2}
-@media (max-width: 900px){
+/* narrower windows keep the tools on the left, just slimmer; only phones stack them */
+@media (max-width: 900px){.work{grid-template-columns:240px minmax(0,1fr)}}
+@media (max-width: 640px){
   .app{height:auto;min-height:100%;display:block}
   #viewScore{display:block}
   .work{display:flex;flex-direction:column-reverse}
