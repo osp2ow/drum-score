@@ -245,6 +245,8 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .pad .ic svg{width:15px;height:15px;vertical-align:middle}
 .t-lyr{cursor:pointer}
 .editing{visibility:hidden}
+.hidst{stroke:var(--muted);stroke-width:.1;stroke-dasharray:.45 .35}
+.hidbox{stroke:var(--sel);stroke-width:.12;stroke-dasharray:.6 .4}
 .hhandle{cursor:ew-resize}
 .hhandle circle{fill:var(--paper);stroke:var(--sel);stroke-width:.2}
 .paper-bg{fill:var(--paper)}
@@ -382,6 +384,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <kbd>.</kbd><span>점 붙이기 / 떼기</span>
             <kbd>쉼표 + 1~7</kbd><span>쉼표를 누르고 숫자를 치면 쉼표 길이가 바뀌어요 (5 = 4분쉼표)</span>
             <kbd>Ctrl+3</kbd><span>셋잇단 켜기 / 끄기</span>
+            <kbd>H</kbd><span>선택한 마디 숨기기 / 풀기 (화면엔 점선, 인쇄엔 안 나옴)</span>
             <kbd>Shift+Delete</kbd><span>선택한 마디 자체를 삭제 (앞뒤 마디는 그대로 붙음)</span>
             <kbd>Shift + +</kbd><span>선택한 마디 뒤에 원하는 수만큼 마디 추가</span>
             <kbd>Ctrl+숫자</kbd><span>마디 선택 후: 이 줄을 그 마디 수로 (Ctrl+5 → 5마디)</span>
@@ -569,7 +572,7 @@ function normMeasure(m,ti){
   if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
   {const v=typeof m.volta==='string'?{t:m.volta,n:+m.voltaLen||1}:m.volta;
    if(v&&typeof v==='object'&&str(v.t).trim()){o.volta={t:str(v.t).trim().slice(0,8),n:Math.max(1,Math.min(32,Math.round(+v.n)||1))}}}
-  for(const k of ['segno','coda','ds','pageBreak','lineBreak']) if(m[k]) o[k]=true;
+  for(const k of ['segno','coda','ds','pageBreak','lineBreak','hidden']) if(m[k]) o[k]=true;
   if(m.barEnd==='double'){o.barEnd='double';if(m.autoDbl)o.autoDbl=true}
   return o;
 }
@@ -849,8 +852,10 @@ function computeLayout(){
     sys.hasLyr=hasStk||ms.some(k=>score.measures[k].lyrics.length);
     sys.stkBelow=hasStk&&ms.some(k=>score.measures[k].lyrics.length)?2.4:0;
     sys.hairs=hairs.filter(h=>h.a<=ms[ms.length-1]&&h.e>=ms[0]);
-    sys.above=6.2+(ms.some((k,ix)=>rowMarks(score.measures[k],ix===0))?2.6:0)+(sys.hairs.length?1.2:0);
-    sys.markShift=sys.hairs.length?1.2:0;
+    const rm=ms.some((k,ix)=>rowMarks(score.measures[k],ix===0)),hs=sys.hairs.length>0;
+    // tempo / D.S. row sits above a crescendo, never on it
+    sys.above=6.2+(rm?2.6:0)+(hs?(rm?2.6:1.4):0);
+    sys.markShift=hs&&rm?2.6:0;
     sys.voltas=[];score.measures.forEach((mm,i)=>{if(mm.volta){const e=Math.min(score.measures.length-1,i+mm.volta.n-1);if(i<=ms[ms.length-1]&&e>=ms[0])sys.voltas.push({a:i,e})}});
     if(sys.voltas.length){sys.above+=2.6;sys.markShift+=2.6}
     sys.secLift=secLiftFor(ms[0],sx,hw,widths[ms[0]],NAT[ms[0]]);if(sys.secLift){sys.above+=sys.secLift;sys.markShift+=sys.secLift}
@@ -946,6 +951,7 @@ function elG(key,off,inner,hit){
 }
 function renderPage(pi,exp){
   RX=!!exp;
+  if(exp){L.mTop={};L.tops=[]} // fresh heights for a printout (screen render resets them itself)
   const pg=L.pages[pi];
   let o=exp?`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${r(PAGE_W)} ${r(PAGE_H)}" width="${BASE_W*14}" height="${r(BASE_H*14)}"><style>${exportCss()}</style><rect width="${PAGE_W}" height="${PAGE_H}" fill="#ffffff"/>`
     :`<svg class="page" data-p="${pi}" viewBox="0 0 ${r(PAGE_W)} ${r(PAGE_H)}" role="img" aria-label="악보 ${pi+1}쪽"><rect class="paper-bg" width="${PAGE_W}" height="${PAGE_H}"/>`;
@@ -981,16 +987,24 @@ function tsGlyphs(x,y,num,w){
 }
 function renderSystem(sys,exp){
   const top=sys.top;let o='';
-  for(let k=0;k<5;k++)o+=line(sys.sx,top+k,sys.end,top+k,0.11);
-  o+=glyph(sys.sx+0.8,top+2,G.clef);
+  const hid=mi=>score.measures[mi].hidden,headHid=hid(sys.ms[0]);
+  {let st0=sys.sx;const runs=[],gaps=[];
+   for(const mi of sys.ms){const ml=L.mL[mi];if(hid(mi)){const g0=mi===sys.ms[0]?sys.sx:ml.x;if(g0>st0+0.01)runs.push([st0,g0]);gaps.push([g0,ml.x+ml.w]);st0=ml.x+ml.w}}
+   if(sys.end>st0+0.01)runs.push([st0,sys.end]);
+   for(const [x1,x2] of runs)for(let k=0;k<5;k++)o+=line(x1,top+k,x2,top+k,0.11);
+   if(!exp)for(const [x1,x2] of gaps)for(let k=0;k<5;k++)o+=`<line x1="${r(x1)}" y1="${r(top+k)}" x2="${r(x2)}" y2="${r(top+k)}" class="hidst"/>`}
+  let hdr=glyph(sys.sx+0.8,top+2,G.clef);
   if(sys.first){
     const w=tsWidthOf(score.ts),tx=sys.sx+3.3;
-    o+=tsGlyphs(tx,top+1,score.ts[0],w)+tsGlyphs(tx,top+3,score.ts[1],w);
+    hdr+=tsGlyphs(tx,top+1,score.ts[0],w)+tsGlyphs(tx,top+3,score.ts[1],w);
   }
+  if(!headHid)o+=hdr;else if(!exp)o+=`<g opacity=".28">${hdr}</g>`;
+  sys._marks=[];sys._spanTop=null;
   for(const mi of sys.ms)o+=renderMeasure(mi,sys,exp);
-  if(score.showNums&&sys.ms[0]>0){const sm=score.measures[sys.ms[0]];o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(sm.section?top-2.4-(sys.secLift||0)-txs('sec').sz*1.42-0.5:top-1.2)}">${sys.ms[0]+1}</text>`}
+  if(score.showNums&&sys.ms[0]>0&&!(exp&&headHid)){const sm=score.measures[sys.ms[0]];o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(sm.section?top-2.4-(sys.secLift||0)-txs('sec').sz*1.42-0.5:top-1.2)}">${sys.ms[0]+1}</text>`}
   for(const h of sys.hairs)o+=drawHairpin(h,sys,exp);
   for(const v of (sys.voltas||[]))o+=drawVolta(v,sys,exp);
+  {let rowY=top-7.05-(sys.markShift||0);if(sys._spanTop!=null)rowY=Math.min(rowY,sys._spanTop-1.0);for(const f of sys._marks)o+=f(rowY);sys._marks=null}
   return o;
 }
 // drag the end of a crescendo: it can grow or shrink inside its line and spill into the next measures
@@ -1026,9 +1040,10 @@ function crescStartDrag(e,svg,a){
 }
 // 1st / 2nd ending bracket: a line over the measures with a hook down at the start (and at the end for "1.")
 function drawVolta(v,sys,exp){
+  if(exp&&score.measures[v.a].hidden)return '';
   const m=score.measures[v.a],a=Math.max(v.a,sys.ms[0]),e=Math.min(v.e,sys.ms[sys.ms.length-1]);if(a>e)return '';
   let mt=sys.top;for(let k=a;k<=e;k++)if(L.mTop&&L.mTop[k]!=null)mt=Math.min(mt,L.mTop[k]);
-  const y=Math.min(sys.top-3.8,mt-2.5),hk=1.7,start=a===v.a,end=e===v.e;
+  const y=Math.min(sys.top-3.8,mt-2.5),hk=1.7,_r=(sys._spanTop=Math.min(sys._spanTop??Infinity,y-0.4)),start=a===v.a,end=e===v.e;
   const x1=L.mL[a].x+(start?0.3:0),x2=L.mL[e].x+L.mL[e].w-(end?0.5:0);
   const closed=end&&/^1/.test(m.volta.t)&&!/2/.test(m.volta.t);
   let body=line(x1,y,x2,y,0.14);
@@ -1037,6 +1052,7 @@ function drawVolta(v,sys,exp){
   return elG('volta:'+v.a,offOf(m,'volta'),body,[x1,y-0.5,x2-x1,hk+0.8]);
 }
 function drawHairpin(h,sys,exp){
+  if(exp&&score.measures[h.a].hidden)return '';
   const m=score.measures[h.a];let body='',hb=null;
   // full span across systems; opening grows with cumulative length
   const segs=[];
@@ -1049,6 +1065,7 @@ function drawHairpin(h,sys,exp){
   for(const g of segs){
     const o1=0.62*acc/total;acc+=g.x2-g.x1;const o2=0.62*acc/total;
     if(g.s===sys){let mt=sys.top;for(const k of sys.ms)if(k>=h.a&&k<=h.e&&L.mTop&&L.mTop[k]!=null)mt=Math.min(mt,L.mTop[k]);const y=Math.min(sys.top-4.6,mt-1.5);
+      sys._spanTop=Math.min(sys._spanTop??Infinity,y-0.7);
       if(L.mTop)for(const k of sys.ms)if(k>=h.a&&k<=h.e)L.mTop[k]=Math.min(L.mTop[k]??sys.top,y-0.7);body+=line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
       if(!exp&&sel&&sel.type==='el'&&sel.key==='cresc:'+h.a){const of=offOf(m,'cresc')||[0,0],hdl=(x,side)=>`<g class="hhandle" data-hh="${h.a}" data-side="${side}"><rect x="${r(x+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(x+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`;
         if(g.first)o+=hdl(g.x1,'l');if(g.last)o+=hdl(g.x2,'r')}}
@@ -1056,6 +1073,19 @@ function drawHairpin(h,sys,exp){
   return body?elG('cresc:'+h.a,offOf(m,'cresc'),body,hb)+o:'';
 }
 function renderMeasure(mi,sys,exp){
+  const m=score.measures[mi];
+  if(m.hidden){
+    if(exp)return '';
+    const ml=L.mL[mi],top=sys.top,x0=mi===sys.ms[0]?sys.sx:ml.x;
+    return `<g opacity=".3">${renderMeasureBody(mi,sys,exp)}</g><rect x="${r(x0+0.15)}" y="${r(top-0.6)}" width="${r(ml.x+ml.w-x0-0.3)}" height="5.2" fill="none" class="hidbox"/>`+
+      `<rect class="mhit${!inputMode&&sel&&((sel.type==='measure'&&sel.m===mi)||(sel.type==='range'&&mi>=sel.a&&mi<=sel.b))?' on':''}" data-m="${mi}" x="${r(ml.x)}" y="${r(top-2.4)}" width="${r(ml.w)}" height="8.8"/>`;
+  }
+  let o=renderMeasureBody(mi,sys,exp);
+  // a measure right after a hidden one starts with its own barline
+  if(mi>0&&score.measures[mi-1].hidden&&mi!==sys.ms[0])o+=line(L.mL[mi].x,sys.top,L.mL[mi].x,sys.top+4,0.16);
+  return o;
+}
+function renderMeasureBody(mi,sys,exp){
   const m=score.measures[mi],ml=L.mL[mi],top=sys.top,N=score.measures.length,ti=ml.ti;
   let o='';
   if(!exp){
@@ -1063,14 +1093,17 @@ function renderMeasure(mi,sys,exp){
     o+=`<rect class="mhit${on?' on':''}" data-m="${mi}" x="${r(ml.x)}" y="${r(top-2.4)}" width="${r(ml.w)}" height="8.8"/>`;
   }
   // marks row above the staff: section box, segno, coda, tempo; D.S. at the right
-  const rowY=top-7.05-(sys.markShift||0);let mx=ml.x+0.2,secLater=null;
+  let secLater=null,secMark=null;
   if(m.section){const st=txs('sec'),cap=st.sz*0.72,pad=st.sz*0.42,padV=st.sz*0.35,w=textW(m.section,st.sz,st.w,SEC_FONT)+pad*2,h=cap+padV*2;
     // a part label on the first measure of a line sits at the top-left corner of the staff
     const first=mi===sys.ms[0];
     const drawSec=(bx,by)=>{if(!exp){const so=offOf(m,'sec');L.secPos[mi]={page:ml.page,x:bx+pad+(so?so[0]:0),y:by+(so?so[1]:0)}}
     return elG('sec:'+mi,offOf(m,'sec'),`<rect x="${r(bx)}" y="${r(by-cap-padV)}" width="${r(w)}" height="${r(h)}" fill="none" class="ln" stroke-width="0.16"/><text class="tx t-sec" x="${r(bx+pad)}" y="${r(by)}">${esc(m.section)}</text>`,[bx,by-cap-padV,w,h])};
     if(first)secLater=()=>{let b=top-2.4;for(const t of (L.tops||[]))if(t.mi===mi&&t.x0<sys.sx+w+0.3)b=Math.min(b,t.t-0.6);return drawSec(sys.sx,b-padV)};
-    else{o+=drawSec(mx,rowY);mx+=w+0.9}}
+    else secMark={w,draw:drawSec}}
+  // the marks row is drawn once the line knows how high its crescendos / brackets go
+  const marks=rowY=>{let o='',mx=ml.x+0.2;
+  if(secMark){o+=secMark.draw(mx,rowY);mx+=secMark.w+0.9}
   if(m.segno){o+=elG('segno:'+mi,offOf(m,'segno'),glyph(mx,rowY+0.35,G.segno,'',3),[mx-0.2,rowY-2.3,2.4,2.8]);mx+=2.6}
   if(m.coda){o+=elG('coda:'+mi,offOf(m,'coda'),glyph(mx,rowY+0.05,G.coda,'',3),[mx-0.2,rowY-2.3,2.6,2.8]);mx+=2.9}
   if(m.tempo){
@@ -1079,6 +1112,8 @@ function renderMeasure(mi,sys,exp){
     o+=elG('tempo:'+mi,of,glyph(mx,rowY+0.1,G.metQ,'',2.9)+(ti.compound?glyph(mx+1.2,rowY+0.1,G.dot,'',2.9):'')+`<text class="tx t-tempo" x="${r(mx+(ti.compound?1.7:1.2))}" y="${r(rowY)}"> = <tspan data-tnum="${mi}">${m.tempo}</tspan></text>`,[mx-0.3,rowY-2.6,8.6,3.4]);
   }
   if(m.ds)o+=elG('ds:'+mi,offOf(m,'ds'),`<text class="tx t-ds" x="${r(ml.x+ml.w-0.4)}" y="${r(rowY)}" text-anchor="end">D.S.</text>`,[ml.x+ml.w-4.2,rowY-2.1,4,2.6]);
+  return o};
+  if(sys._marks)sys._marks.push(marks);else o+=marks(top-7.05-(sys.markShift||0));
   // time signature change
   if(mi>0&&m.ts){const w=tsWidthOf(m.ts),x=ml.x+0.8;o+=elG('ts:'+mi,null,tsGlyphs(x,top+1,m.ts[0],w)+tsGlyphs(x,top+3,m.ts[1],w),[x-0.2,top,w+0.4,4])}
   const xr=ml.x+ml.w;
@@ -2092,6 +2127,9 @@ document.addEventListener('keydown',e=>{
   if(letter==='l'&&!e.shiftKey){e.preventDefault();startLyrics();return}
   if(letter==='v'&&e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'accent');else toast('악센트를 붙일 음표를 먼저 누르세요');return}
   if(letter==='z'&&!e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'ghost');else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
+  if(letter==='h'&&!e.shiftKey&&sel&&sel.type!=='el'){e.preventDefault();const ms=selMeasures(),all=ms.every(mi=>score.measures[mi].hidden);
+    commit(()=>{for(const mi of ms){const m=score.measures[mi];if(all)delete m.hidden;else m.hidden=true}});
+    toast(all?'숨김을 풀었어요':'숨겼어요 · 화면에서는 점선으로 보이고 PDF·PNG에는 안 나와요 (다시 H로 풀기)');return}
   const inst=letter&&INSTS.find(i=>i.key===letter);
   if(inst){
     e.preventDefault();inputInst=inst.id;
