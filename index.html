@@ -454,6 +454,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
               <label>BPM <input id="recBpm" type="number" min="30" max="300" value="80"></label>
               <label>가장 잘게 <select id="recUnit"><option value="8">8분</option><option value="16" selected>16분</option><option value="32">32분</option></select></label>
               <label class="chk"><input type="checkbox" id="recTrip"> 셋잇단·6연음</label>
+              <label class="chk" title="켜면 8분·16분 대신 셋잇단 칸(셔플)으로만 박자를 정리해요"><input type="checkbox" id="recShuf"> 셔플</label>
               <label class="chk"><input type="checkbox" id="recMetro" checked> 메트로놈</label>
               <label title="치는 소리가 늦게 찍히면 + 값, 빨리 찍히면 - 값">지연 보정 <input id="recLat" type="number" min="-200" max="300" step="5" value="0"> ms</label>
               <button class="ib" id="recClose">닫기</button>
@@ -1091,7 +1092,7 @@ function shuffleMark(x,y){
   o+=`<text class="tx t-tempo" x="${r(x+3.0)}" y="${r(y)}">=</text>`;
   // = 8th, 8th rest, 8th under one beam with a 3 (the way this score writes shuffle)
   const x2=x+4.7,x3=x2+2.8;
-  o+=glyph(x2,yb,G.metQ,'',fs)+glyph((x2+x3)/2+qw-0.08-0.276*fs/2,yb-0.9,G.rest['1'],'',fs)+glyph(x3,yb,G.metQ,'',fs);
+  o+=glyph(x2,yb,G.metQ,'',fs)+glyph((x2+x3)/2+qw/2-0.276*fs/2,yb-0.9,G.rest['1'],'',fs)+glyph(x3,yb,G.metQ,'',fs);
   o+=`<rect class="fl" x="${r(x2+qw-0.1)}" y="${r(top+0.1)}" width="${r(x3-x2+0.04)}" height="0.32"/>`;
   o+=`<text class="tx" x="${r((x2+x3)/2+qw/2)}" y="${r(top-0.35)}" text-anchor="middle" style="font-size:1.5px;font-style:italic;font-weight:700">3</text>`;
   return o;
@@ -2496,6 +2497,8 @@ function flashKey(code){const el=document.querySelector(`#recKb [data-k="${code.
 // which grid divisions a beat may use, with a small cost for more complicated ones
 function recCands(ti){
   const unit=+$('#recUnit').value||16,trip=$('#recTrip').checked,maxS=unit/4*ti.bl;
+  // shuffle: only the triplet grid (quarter, triplet 8ths, and 16th-triplets if the finest unit allows)
+  if($('#recShuf').checked&&!ti.compound&&ti.bf===0){const c=[{D:1,pen:0},{D:3,pen:0.004}];if(unit>=16)c.push({D:6,pen:0.08});return c}
   const out=[];
   for(const D of ti.divs){
     const isTrip=!ti.compound&&D%3===0;
@@ -2672,6 +2675,7 @@ function stopRec(){
   $('#recGo').classList.remove('live');$('#recGo').innerHTML='● 녹음 <kbd>R</kbd>';
   // drop empty measures the take added at the end
   while(score.measures.length>rec.origLen&&isBlank(score.measures[score.measures.length-1]))score.measures.pop();
+  if($('#recShuf').checked&&!score.measures.slice(0,rec.start+1).some(m=>m.shuffle)&&score.measures[rec.start]&&score.measures.slice(rec.start).some(m=>m.notes.length))score.measures[rec.start].shuffle=true;
   const changed=JSON.stringify(score)!==rec.before;
   if(changed){hist.u.push(rec.before);if(hist.u.length>200)hist.u.shift();hist.r.length=0;delete score.pristine;userTouched=true}
   sel={type:'measure',m:rec.start};validateSel();render();if(changed)scheduleSave();
@@ -2693,6 +2697,8 @@ window.addEventListener('keydown',e=>{
 },true);
 $('#tbRec').onclick=()=>rec.open?closeRec():openRec();
 $('#recClose').onclick=closeRec;
+try{$('#recShuf').checked=lsGet('jds:recShuf')==='1'}catch(e){}
+$('#recShuf').onchange=e=>lsSet('jds:recShuf',e.target.checked?'1':'0');
 $('#recGo').onclick=()=>{(rec.on?stopRec:startRec)();$('#recGo').blur()};
 $('#recPlay').onclick=()=>{if(!rec.on)togglePlay();$('#recPlay').blur()};
 $('#recKb').addEventListener('pointerdown',e=>{const k=e.target.closest('[data-k]');if(!k)return;const code='Key'+k.dataset.k,inst=REC_KEYS[code];if(!inst)return;e.preventDefault();flashKey(code);playDrum(inst);
