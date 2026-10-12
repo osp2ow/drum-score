@@ -723,6 +723,10 @@ function voiceLayout(m,v,ti){
         if(len>n)pushR(st+n,len-n);
       });
     }
+    // shuffle: triplet with the 1st and 3rd notes -> two beamed 8ths with an 8th rest under the beam
+    if(!ti.compound&&D===3&&items.length===2&&items[0].k==='n'&&items[0].s===0&&items[0].n===2&&!items[0].want&&items[1].k==='n'&&items[1].s===2){
+      items[0].n=1;items[0].dur=durOf(ti,3,1);items.splice(1,0,{k:'r',b,s:1,D,n:1,dur:durOf(ti,3,1),bt:true});
+    }
     beats.push({b,D,items,tup:!ti.compound&&(D===3||D===6)&&items.length>1?D:0});
   }
   if(!any&&!(v===1&&m.rb&&m.rb.length))return {mrest:true,items:[],groups:[],tuplets:[]};
@@ -774,6 +778,7 @@ function voiceLayout(m,v,ti){
   const close=()=>{if(cur.length>=2)groups.push(cur);cur=[]};
   const beamable=it=>it.k==='n'&&it.dur.flags>=1;
   for(const it of out){
+    if(it.bt)continue; // a rest the beam runs over
     if(beamable(it)&&(!cur.length||(gk(cur[0].b)===gk(it.b)&&!!cur[0].down===!!it.down)))cur.push(it);
     else{close();if(beamable(it))cur.push(it)}
   }
@@ -1345,7 +1350,7 @@ function drawBeam(g,up){
 function drawTuplet(tp,vl,up,top){
   const its=vl.items.filter(i=>i.b===tp.b&&!i.span);if(!its.length)return '';
   const ch=tp.D===6?G.tup6:G.tup3;
-  const g=vl.groups.find(gr=>its.every(i=>gr.includes(i)));
+  const g=vl.groups.find(gr=>its.every(i=>i.bt||gr.includes(i)));
   if(g){const xm=(g[0].stemX+g[g.length-1].stemX)/2-0.45;return `<text class="mu sm" x="${r(xm)}" y="${r(g.up?g.yB-0.5:g.yB+1.75)}">${ch}</text>`}
   const x1=its[0].x,x2=its[its.length-1].x+HEAD_W,xm=(x1+x2)/2;
   const tips=its.filter(i=>i.k==='n').map(i=>i.tip);
