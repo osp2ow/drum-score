@@ -403,6 +403,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <kbd>.</kbd><span>점 붙이기 / 떼기</span>
             <kbd>쉼표 + 1~7</kbd><span>쉼표를 누르고 숫자를 치면 쉼표 길이가 바뀌어요 (5 = 4분쉼표)</span>
             <kbd>Ctrl+3</kbd><span>셋잇단 켜기 / 끄기</span>
+            <kbd>Shift+3 / Shift+6</kbd><span>고른 음표·쉼표의 박을 셋잇단(8분쉼표 3개) / 6연음(16분쉼표 6개)으로</span>
             <kbd>Space</kbd><span>선택한 마디부터 재생 / 멈춤</span>
             <kbd>H</kbd><span>선택한 마디 숨기기 / 풀기 (화면엔 점선, 인쇄엔 안 나옴)</span>
             <kbd>Shift+Delete</kbd><span>선택한 마디 자체를 삭제 (앞뒤 마디는 그대로 붙음)</span>
@@ -723,8 +724,8 @@ function voiceLayout(m,v,ti){
         if(len>n)pushR(st+n,len-n);
       });
     }
-    // in a triplet beat, a two-slot rest is written as two 8th rests
-    if(!ti.compound&&D===3)for(let i=items.length-1;i>=0;i--){const it=items[i];if(it.k==='r'&&it.n===2){items.splice(i,1,{...it,n:1,dur:durOf(ti,3,1)},{...it,s:it.s+1,n:1,dur:durOf(ti,3,1)})}}
+    // in a triplet (3) or sextuplet (6) beat, rests are written slot by slot: 8th rests / 16th rests
+    if(!ti.compound&&(D===3||D===6))for(let i=items.length-1;i>=0;i--){const it=items[i];if(it.k==='r'&&it.n>1){const rs=[];for(let k=0;k<it.n;k++)rs.push({...it,s:it.s+k,n:1,dur:durOf(ti,D,1)});items.splice(i,1,...rs)}}
     // shuffle: triplet with the 1st and 3rd notes -> two beamed 8ths with an 8th rest under the beam
     if(!ti.compound&&D===3&&items.length===2&&items[0].k==='n'&&items[0].s===0&&items[0].n===2&&!items[0].want&&items[1].k==='n'&&items[1].s===2){
       items[0].n=1;items[0].dur=durOf(ti,3,1);items.splice(1,0,{k:'r',b,s:1,D,n:1,dur:durOf(ti,3,1),bt:true});
@@ -2139,6 +2140,15 @@ document.addEventListener('keydown',e=>{
   if(e.shiftKey&&(k==='Delete'||k==='Backspace')&&sel&&sel.type!=='el'){e.preventDefault();const ms=selMeasures();deleteMeasures(ms);toast(ms.length>1?`마디 ${ms[0]+1}–${ms[ms.length-1]+1}을 지웠어요`:`마디 ${ms[0]+1}을 지웠어요`);return}
   const sn=getSelNote();
   if(e.shiftKey&&(code==='Period'||k==='>')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'accent')}return}
+  // Shift+3 / Shift+6 on a note or rest: that beat becomes an empty triplet (3 eighth rests) / sextuplet (6 sixteenth rests)
+  if(e.shiftKey&&(digit===3||digit===6)&&sel&&(sel.type==='note'||sel.type==='rest')){
+    e.preventDefault();const sn=getSelNote();const mi=sn?sn.m:sel.m,b=sn?sn.n.b:Math.floor(sel.t+1e-9),D=digit;const ti=tiAt(mi);
+    if(ti.compound||!ti.divs.includes(D)){toast('이 박자에서는 셋잇단·6연음으로 바꿀 수 없어요');return}
+    commit(()=>{const m=score.measures[mi];m.notes=m.notes.filter(n=>n.b!==b);m.divs[b]=D;
+      if(m.rb){m.rb=m.rb.filter(x=>!(x>b+1e-9&&x<b+1-1e-9));if(!m.rb.length)delete m.rb}
+      if(m.rdx)delete m.rdx[b];sel={type:'rest',m:mi,t:b,v:1}});
+    toast(D===3?'셋잇단으로 바꿨어요 · 8분쉼표를 골라 악기 키로 채우세요':'6연음으로 바꿨어요 · 16분쉼표를 골라 악기 키로 채우세요');return;
+  }
   if(e.shiftKey&&(code==='Digit9'||code==='Digit0'||k==='('||k===')')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'ghost')}else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
   if((k==='Enter'||code==='Enter'||code==='NumpadEnter')&&!e.shiftKey&&!inputMode){
     if(!sel){toast('줄을 나눌 마디를 먼저 누르세요');return}
