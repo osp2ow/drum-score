@@ -81,6 +81,10 @@ kbd{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:10.5px;c
 .pcat>button:hover{background:var(--chrome-2)}
 .pcat .tri{width:0;height:0;border-left:5px solid var(--ink);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .12s}
 .pcat[data-open="true"] .tri{transform:rotate(90deg)}
+.pcat.dragging,.cell.dragging{opacity:.4}
+.pcat.drop-before{box-shadow:0 -2px 0 var(--accent)}.pcat.drop-after{box-shadow:0 2px 0 var(--accent)}
+.cell.drop-before{box-shadow:-3px 0 0 var(--accent)}.cell.drop-after{box-shadow:3px 0 0 var(--accent)}
+.palreset{display:block;margin:10px 4px;border:0;background:none;color:var(--muted);font-size:11.5px;text-decoration:underline;cursor:pointer}
 .pcat .cnt{margin-left:auto;font-size:11px;color:var(--muted);font-family:var(--mono)}
 .pcells{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:4px;padding:4px 2px 10px 18px}
 .pcells[hidden]{display:none}
@@ -1784,9 +1788,7 @@ function setTsFrom(mi,ts){
 }
 
 /* ---------- palette ---------- */
-const hhIcon=mk=>svgI(`<g class="ln" fill="none" stroke-linecap="round"><line class="st" x1="1.5" y1="6" x2="8.5" y2="6"/>
-  <path d="M3.9 4.9l2.2 2.2M6.1 4.9l-2.2 2.2" stroke-width=".45"/>
-  ${mk==='o'?'<circle cx="5" cy="2" r="1.05" stroke-width=".42"/>':mk==='oc'?'<circle cx="5" cy="2.7" r="0.95" stroke-width=".4"/><path d="M3.9 -0.1h2.2M5 -1.2v2.2" stroke-width=".42"/>':'<path d="M3.8 2h2.4M5 0.8v2.4" stroke-width=".45"/>'}</g>`,mk==='oc'?'0 -1.8 10 9.8':undefined);
+const hhIcon=mk=>svgI(`<g class="ln" fill="none" stroke-linecap="round">${mk==='o'?'<circle cx="5" cy="4" r="1.4" stroke-width=".45"/>':mk==='oc'?'<circle cx="5" cy="5.4" r="1.2" stroke-width=".42"/><path d="M3.75 2h2.5M5 .75v2.5" stroke-width=".45"/>':'<path d="M3.4 4h3.2M5 2.4v3.2" stroke-width=".5"/>'}</g>`);
 const st5=(x1=0.5,x2=9.5,y0=2)=>{let o='';for(let k=0;k<5;k++)o+=`<line class="st" x1="${x1}" y1="${y0+k}" x2="${x2}" y2="${y0+k}"/>`;return o};
 const svgI=(inner,vb='0 0 10 8')=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
 const T=(x,y,ch,fs=4)=>`<text class="mu" x="${x}" y="${y}" style="font-size:${fs}px">${ch}</text>`;
@@ -1820,19 +1822,54 @@ const PALETTE=[
   {cat:'레이아웃',items:[{id:'addm',label:'마디 추가 (Shift + +)',icon:svgI(st5(1,9)+`<path class="ln" d="M5 2.2v3.6M3.2 4h3.6" stroke-width=".6"/>`)},{id:'lnbrk',label:'줄 나누기 (Enter)',icon:svgI(`<path class="ln" d="M7.6 1.8v3.4H2.6" stroke-width=".3"/><path class="ln" d="M4 3.8 2.5 5.2 4 6.6" stroke-width=".3"/>`)},{id:'pgbrk',label:'페이지 나누기',icon:svgI(`<path class="ln" d="M3.2 1h3l1 1v4.8h-4z" stroke-width=".22"/><path class="ln" d="M4 3.2h2.4M4 4.2h2.4M4 5.2h1.6" stroke-width=".18"/><path class="ln" d="M1 7.4h8" stroke-width=".18" stroke-dasharray=".5 .35"/>`)}]},
 ];
 const palOpen=new Set(PALETTE.map(p=>p.cat));
+// the palette can be rearranged by dragging (categories and the cells inside them); the order is kept in this browser
+let palOrder={cats:[],items:{}};try{const v=JSON.parse(lsGet('jds:palOrder')||'null');if(v&&Array.isArray(v.cats))palOrder={cats:v.cats,items:v.items||{}}}catch(e){}
+function orderedPalette(){
+  const rank=(arr,k,i)=>{const j=arr?arr.indexOf(k):-1;return j<0?1000+i:j};
+  return PALETTE.map((p,ci)=>({p,ci})).sort((a,b)=>rank(palOrder.cats,a.p.cat,a.ci)-rank(palOrder.cats,b.p.cat,b.ci))
+    .map(({p,ci})=>({p,ci,items:p.items.map((it,ii)=>({it,ii})).sort((a,b)=>rank(palOrder.items[p.cat],a.it.id,a.ii)-rank(palOrder.items[p.cat],b.it.id,b.ii)).map(x=>x.it)}));
+}
+function savePalOrder(){lsSet('jds:palOrder',JSON.stringify(palOrder))}
 function renderPalette(){
-  const q=$('#palSearch').value.trim();
-  $('#pcats').innerHTML=PALETTE.map((p,ci)=>{
-    const items=p.items.filter(it=>!q||it.label.includes(q)||p.cat.includes(q));
+  const q=$('#palSearch').value.trim(),drag=q?'':' draggable="true"';
+  $('#pcats').innerHTML=orderedPalette().map(({p,ci,items:all})=>{
+    const items=all.filter(it=>!q||it.label.includes(q)||p.cat.includes(q));
     if(!items.length)return '';
     const open=q?true:palOpen.has(p.cat);
-    return `<div class="pcat" data-open="${open}"><button data-cat="${ci}" aria-expanded="${open}"><span class="tri" aria-hidden="true"></span>${p.cat}<span class="cnt">${items.length}</span></button>
-      <div class="pcells"${open?'':' hidden'}>${items.map(it=>`<button class="cell" data-pal="${it.id}" title="${it.label}">${typeof it.icon==='function'?it.icon():it.icon}<span>${it.label}</span></button>`).join('')}</div>${p.cat==='파트 표기'&&open?`<div class="tsform"><span>직접 입력</span><input id="secTxt" type="text" maxlength="20" placeholder="예: Verse, Fill, 간주" aria-label="파트 표기 문구" style="width:auto;flex:1;min-width:0"><button class="btn sm" id="secApply">넣기</button></div>`:''}${p.cat==='박자표'&&open?`<div class="tsform"><span>직접 지정</span><input id="tsN" type="number" min="1" max="16" value="7" aria-label="박자표 위 숫자"><b>/</b><select id="tsD" aria-label="박자표 아래 숫자"><option>2</option><option>4</option><option selected>8</option></select><button class="btn sm" id="tsApply">넣기</button></div>`:''}</div>`;
-  }).join('')||`<p class="empty">“${esc(q)}”에 맞는 팔레트가 없어요</p>`;
+    return `<div class="pcat" data-open="${open}" data-catname="${esc(p.cat)}"><button data-cat="${ci}" aria-expanded="${open}"${drag} title="끌어서 순서 바꾸기"><span class="tri" aria-hidden="true"></span>${p.cat}<span class="cnt">${items.length}</span></button>
+      <div class="pcells"${open?'':' hidden'}>${items.map(it=>`<button class="cell" data-pal="${it.id}" title="${it.label}"${drag}>${typeof it.icon==='function'?it.icon():it.icon}<span>${it.label}</span></button>`).join('')}</div>${p.cat==='파트 표기'&&open?`<div class="tsform"><span>직접 입력</span><input id="secTxt" type="text" maxlength="20" placeholder="예: Verse, Fill, 간주" aria-label="파트 표기 문구" style="width:auto;flex:1;min-width:0"><button class="btn sm" id="secApply">넣기</button></div>`:''}${p.cat==='박자표'&&open?`<div class="tsform"><span>직접 지정</span><input id="tsN" type="number" min="1" max="16" value="7" aria-label="박자표 위 숫자"><b>/</b><select id="tsD" aria-label="박자표 아래 숫자"><option>2</option><option>4</option><option selected>8</option></select><button class="btn sm" id="tsApply">넣기</button></div>`:''}</div>`;
+  }).join('')+(q?'':`<button class="palreset" id="palReset"${palOrder.cats.length||Object.keys(palOrder.items).length?'':' hidden'}>팔레트 순서 처음대로</button>`)||`<p class="empty">“${esc(q)}”에 맞는 팔레트가 없어요</p>`;
 }
+// drag to reorder
+let palDrag=null;
+$('#pcats').addEventListener('dragstart',e=>{
+  const cell=e.target.closest&&e.target.closest('.cell[data-pal]'),hdr=e.target.closest&&e.target.closest('.pcat>button[data-cat]');
+  if(cell){palDrag={kind:'item',id:cell.dataset.pal,cat:cell.closest('.pcat').dataset.catname}}
+  else if(hdr){palDrag={kind:'cat',cat:hdr.closest('.pcat').dataset.catname}}else return;
+  e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain','pal')}catch(err){}
+  (cell||hdr.closest('.pcat')).classList.add('dragging');
+});
+const clearDropMarks=()=>$('#pcats').querySelectorAll('.drop-before,.drop-after,.dragging').forEach(x=>x.classList.remove('drop-before','drop-after','dragging'));
+function palDropTarget(e){
+  if(!palDrag)return null;
+  if(palDrag.kind==='item'){const c=e.target.closest('.cell[data-pal]');if(!c||c.closest('.pcat').dataset.catname!==palDrag.cat||c.dataset.pal===palDrag.id)return null;
+    const r=c.getBoundingClientRect();return {el:c,after:e.clientX>r.left+r.width/2}}
+  const pc=e.target.closest('.pcat');if(!pc||pc.dataset.catname===palDrag.cat)return null;
+  const r=pc.querySelector('button').getBoundingClientRect();return {el:pc,after:e.clientY>r.top+r.height/2}
+}
+$('#pcats').addEventListener('dragover',e=>{const t=palDropTarget(e);if(!t)return;e.preventDefault();e.dataTransfer.dropEffect='move';
+  $('#pcats').querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after'));t.el.classList.add(t.after?'drop-after':'drop-before')});
+$('#pcats').addEventListener('drop',e=>{const t=palDropTarget(e);if(!t)return;e.preventDefault();
+  const op=orderedPalette();
+  if(palDrag.kind==='cat'){const names=op.map(x=>x.p.cat).filter(n=>n!==palDrag.cat);let i=names.indexOf(t.el.dataset.catname)+(t.after?1:0);names.splice(i,0,palDrag.cat);palOrder.cats=names}
+  else{const cur=op.find(x=>x.p.cat===palDrag.cat).items.map(it=>it.id).filter(id=>id!==palDrag.id);let i=cur.indexOf(t.el.dataset.pal)+(t.after?1:0);cur.splice(i,0,palDrag.id);palOrder.items[palDrag.cat]=cur}
+  savePalOrder();palDrag=null;renderPalette();toast('팔레트 순서를 바꿨어요');
+});
+$('#pcats').addEventListener('dragend',()=>{palDrag=null;clearDropMarks()});
 $('#palSearch').addEventListener('input',renderPalette);
 $('#pcats').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='secTxt'){e.preventDefault();$('#secApply').click()}if(e.key==='Enter'&&e.target.id==='tsN'){e.preventDefault();$('#tsApply').click()}});
 $('#pcats').addEventListener('click',e=>{
+  if(e.target.id==='palReset'){palOrder={cats:[],items:{}};savePalOrder();renderPalette();toast('팔레트 순서를 처음대로 돌렸어요');return}
   const c=e.target.closest('[data-cat]');
   if(c){const cat=PALETTE[+c.dataset.cat].cat;palOpen.has(cat)?palOpen.delete(cat):palOpen.add(cat);renderPalette();return}
   if(e.target.closest('#secApply')){const v=str($('#secTxt').value).slice(0,20);if(!v){toast('넣을 문구를 입력하세요');return}if(!sel){toast('먼저 악보에서 마디를 누르세요');return}const a=selMeasures()[0];commit(()=>{sectionOn(a,v)});return}
