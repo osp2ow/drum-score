@@ -1083,15 +1083,16 @@ function crescStartDrag(e,svg,a){
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
 }
 // 1st / 2nd ending bracket: a line over the measures with a hook down at the start (and at the end for "1.")
-// swing indication: two beamed 8ths = quarter + 8th under a triplet bracket
+// swing indication: two beamed 8ths = beamed triplet 8th, 8th rest, 8th
 function shuffleMark(x,y){
   const fs=2.9,qw=0.325*fs,top=y-0.875*fs,yb=y+0.1;
   let o=glyph(x,yb,G.metQ,'',fs)+glyph(x+1.6,yb,G.metQ,'',fs)+`<rect class="fl" x="${r(x+qw-0.1)}" y="${r(top+0.1)}" width="${r(1.6+0.04)}" height="0.32"/>`;
   o+=`<text class="tx t-tempo" x="${r(x+3.0)}" y="${r(y)}">=</text>`;
-  const x2=x+4.7;o+=glyph(x2,yb,G.metQ,'',fs)+glyph(x2+1.5,yb,G.met8,'',fs);
-  const by=top-0.55,bx1=x2-0.1,bx2=x2+1.5+0.6*fs*0.6+0.4,mid=(bx1+bx2)/2;
-  o+=line(bx1,by+0.45,bx1,by,0.1)+line(bx1,by,mid-0.5,by,0.1)+line(mid+0.5,by,bx2,by,0.1)+line(bx2,by,bx2,by+0.45,0.1);
-  o+=`<text class="tx" x="${r(mid)}" y="${r(by+0.45)}" text-anchor="middle" style="font-size:1.5px;font-style:italic;font-weight:700">3</text>`;
+  // = 8th, 8th rest, 8th under one beam with a 3 (the way this score writes shuffle)
+  const x2=x+4.7,x3=x2+2.8;
+  o+=glyph(x2,yb,G.metQ,'',fs)+glyph(x2+1.35,y-1.05,G.rest['1'],'',fs)+glyph(x3,yb,G.metQ,'',fs);
+  o+=`<rect class="fl" x="${r(x2+qw-0.1)}" y="${r(top+0.1)}" width="${r(x3-x2+0.04)}" height="0.32"/>`;
+  o+=`<text class="tx" x="${r((x2+x3)/2+qw/2)}" y="${r(top-0.35)}" text-anchor="middle" style="font-size:1.5px;font-style:italic;font-weight:700">3</text>`;
   return o;
 }
 function drawVolta(v,sys,exp){
@@ -1166,7 +1167,7 @@ function renderMeasureBody(mi,sys,exp){
     if(!exp){const st=txs('tempo');L.tempoPos[mi]={page:ml.page,x:mx+(ti.compound?1.7:1.2)+textW(' = ',st.sz,st.w)+(of?of[0]:0),y:rowY+(of?of[1]:0)}}
     o+=elG('tempo:'+mi,of,glyph(mx,rowY+0.1,G.metQ,'',2.9)+(ti.compound?glyph(mx+1.2,rowY+0.1,G.dot,'',2.9):'')+`<text class="tx t-tempo" x="${r(mx+(ti.compound?1.7:1.2))}" y="${r(rowY)}"> = <tspan data-tnum="${mi}">${m.tempo}</tspan></text>`,[mx-0.3,rowY-2.6,8.6,3.4]);mx+=9.2;
   }
-  if(m.shuffle){o+=elG('shuf:'+mi,offOf(m,'shuf'),shuffleMark(mx,rowY),[mx-0.3,rowY-3.9,7.8,4.4]);mx+=8.2}
+  if(m.shuffle){o+=elG('shuf:'+mi,offOf(m,'shuf'),shuffleMark(mx,rowY),[mx-0.3,rowY-3.9,9.0,4.4]);mx+=9.4}
   if(m.ds)o+=elG('ds:'+mi,offOf(m,'ds'),`<text class="tx t-ds" x="${r(ml.x+ml.w-0.4)}" y="${r(rowY)}" text-anchor="end">D.S.</text>`,[ml.x+ml.w-4.2,rowY-2.1,4,2.6]);
   return o};
   if(sys._marks)sys._marks.push(marks);else o+=marks(top-7.05-(sys.markShift||0));
@@ -1790,7 +1791,7 @@ const PALETTE=[
     {id:'flam',label:'플램',icon:svgI(st5()+T(2.6,5.5,G.flam)+T(4.6,5.5,G.headBlack)+`<line class="ln" x1="5.84" y1="5.3" x2="5.84" y2="1.8" stroke-width=".12"/><path class="fl" d="M3 6Q4.1 7 5.2 6Q4.1 6.7 3 6Z"/>`)},
     {id:'drag',label:'드래그',icon:svgI(st5()+T(1.7,5.5,G.headBlack,2.6)+T(2.95,5.5,G.headBlack,2.6)+`<line class="ln" x1="2.5" y1="5.4" x2="2.5" y2="3.2" stroke-width=".09"/><line class="ln" x1="3.75" y1="5.4" x2="3.75" y2="3.2" stroke-width=".09"/><rect class="fl" x="2.45" y="3.2" width="1.35" height=".32"/><rect class="fl" x="2.45" y="3.75" width="1.35" height=".32"/>`+T(4.9,5.5,G.headBlack)+`<line class="ln" x1="6.14" y1="5.3" x2="6.14" y2="1.8" stroke-width=".12"/>`)}]},
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
-  {cat:'템포',items:[{id:'shuffle',label:'셔플',icon:svgI(shuffleMark(0.2,6.2).replace(/class="tx t-tempo"/,'class="tx" style="font-size:2.2px"'),'0 0 8.4 8')},...[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))]},
+  {cat:'템포',items:[{id:'shuffle',label:'셔플',icon:svgI(shuffleMark(0.2,6.2).replace(/class="tx t-tempo"/,'class="tx" style="font-size:2.2px"'),'0 0 9.4 8')},...[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))]},
   {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)}]},
   {cat:'아티큘레이션',items:[
     {id:'accent',label:'악센트',icon:svgI(T(3.6,4.9,G.accA,5))},
