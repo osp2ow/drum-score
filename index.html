@@ -1091,7 +1091,7 @@ function shuffleMark(x,y){
   o+=`<text class="tx t-tempo" x="${r(x+3.0)}" y="${r(y)}">=</text>`;
   // = 8th, 8th rest, 8th under one beam with a 3 (the way this score writes shuffle)
   const x2=x+4.7,x3=x2+2.8;
-  o+=glyph(x2,yb,G.metQ,'',fs)+glyph((x2+x3)/2+qw/2-0.276*fs/2,yb-1.25,G.rest['1'],'',fs)+glyph(x3,yb,G.metQ,'',fs);
+  o+=glyph(x2,yb,G.metQ,'',fs)+glyph((x2+x3)/2+qw-0.08-0.276*fs/2,yb-0.9,G.rest['1'],'',fs)+glyph(x3,yb,G.metQ,'',fs);
   o+=`<rect class="fl" x="${r(x2+qw-0.1)}" y="${r(top+0.1)}" width="${r(x3-x2+0.04)}" height="0.32"/>`;
   o+=`<text class="tx" x="${r((x2+x3)/2+qw/2)}" y="${r(top-0.35)}" text-anchor="middle" style="font-size:1.5px;font-style:italic;font-weight:700">3</text>`;
   return o;
