@@ -124,6 +124,8 @@ h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.
 .kbk{width:58px;height:42px;border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--surface);color:var(--muted);opacity:.45;font-size:11px;line-height:1.15}
 .kbk b{font-size:13px}.kbk.on{opacity:1;color:var(--ink);cursor:pointer;border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
 .kbk.hit{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.recmark{position:absolute;z-index:6;transform:translate(-50%,-50%);border-radius:50%;background:#d93025;opacity:.75;pointer-events:none}
+.recmark.x{border-radius:2px;transform:translate(-50%,-50%) rotate(45deg)}
 .playhead{position:absolute;z-index:6;width:2px;margin-left:-1px;background:#d93025;pointer-events:none;box-shadow:0 0 6px rgba(217,48,37,.5)}
 .eldel{position:absolute;z-index:6;white-space:nowrap;width:max-content;font:600 12px/1 inherit;font-family:inherit;padding:5px 9px;border-radius:6px;border:1px solid var(--danger);background:var(--surface);color:var(--danger);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.18)}
 .eldel:hover{background:var(--danger);color:var(--surface)}
@@ -401,6 +403,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <kbd>.</kbd><span>점 붙이기 / 떼기</span>
             <kbd>쉼표 + 1~7</kbd><span>쉼표를 누르고 숫자를 치면 쉼표 길이가 바뀌어요 (5 = 4분쉼표)</span>
             <kbd>Ctrl+3</kbd><span>셋잇단 켜기 / 끄기</span>
+            <kbd>Space</kbd><span>선택한 마디부터 재생 / 멈춤</span>
             <kbd>H</kbd><span>선택한 마디 숨기기 / 풀기 (화면엔 점선, 인쇄엔 안 나옴)</span>
             <kbd>Shift+Delete</kbd><span>선택한 마디 자체를 삭제 (앞뒤 마디는 그대로 붙음)</span>
             <kbd>Shift + +</kbd><span>선택한 마디 뒤에 원하는 수만큼 마디 추가</span>
@@ -437,17 +440,18 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
           <input id="tempoInput" class="lyric-input" type="number" min="20" max="320" inputmode="numeric" hidden aria-label="템포 (분당 박 수)">
           <div class="addbox" id="addBox" hidden><span>뒤에 추가할 마디 수</span><input id="addN" type="number" min="1" max="64" value="4" inputmode="numeric" aria-label="추가할 마디 수"><button class="btn sm primary" id="addGo">추가</button></div>
           <div class="playhead" id="playhead" hidden></div>
+          <div id="recMarks"></div>
           <button class="eldel" id="elDel" hidden title="선택한 기호 지우기 (Delete)">지우기</button>
           <div class="drop-veil" id="dropVeil" hidden>놓으면 악보로 바꿔서 맨 뒤에 붙여요</div>
         </div>
         <div class="perc">
           <div class="recp" id="recPanel" hidden>
             <div class="recbar">
-              <button class="btn sm recgo" id="recGo">● 녹음 <kbd>Space</kbd></button>
+              <button class="btn sm recgo" id="recGo">● 녹음 <kbd>R</kbd></button><button class="btn sm" id="recPlay">▶ 재생 <kbd>Space</kbd></button>
               <span class="recstat" id="recStat"></span>
               <label>BPM <input id="recBpm" type="number" min="30" max="300" value="80"></label>
               <label>가장 잘게 <select id="recUnit"><option value="8">8분</option><option value="16" selected>16분</option><option value="32">32분</option></select></label>
-              <label class="chk"><input type="checkbox" id="recTrip" checked> 셋잇단·6연음</label>
+              <label class="chk"><input type="checkbox" id="recTrip"> 셋잇단·6연음</label>
               <label class="chk"><input type="checkbox" id="recMetro" checked> 메트로놈</label>
               <label title="치는 소리가 늦게 찍히면 + 값, 빨리 찍히면 - 값">지연 보정 <input id="recLat" type="number" min="-200" max="300" step="5" value="0"> ms</label>
               <button class="ib" id="recClose">닫기</button>
@@ -2122,6 +2126,7 @@ document.addEventListener('keydown',e=>{
   if(ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type!=='el'&&sel.m!=null){e.preventDefault();const sys=L.systems.find(s=>s.ms.includes(sel.m));if(sys)setLineN(sel.m,k==='ArrowUp'?sys.ms.length+1:Math.max(1,sys.ms.length-1));return}
   if(ctrl&&(k==='Delete'||k==='Backspace')){if(sel){e.preventDefault();deleteMeasures(selMeasures())}return}
   if(ctrl||e.altKey)return;
+  if(code==='Space'&&!e.shiftKey){e.preventDefault();if(!e.repeat)togglePlay();return}
   if(k==='+'||code==='NumpadAdd'){e.preventDefault();openAddBox();return}
   // Shift+Delete: remove the selected measure(s) themselves; the measures around close up
   if(e.shiftKey&&(k==='Delete'||k==='Backspace')&&sel&&sel.type!=='el'){e.preventDefault();const ms=selMeasures();deleteMeasures(ms);toast(ms.length>1?`마디 ${ms[0]+1}–${ms[ms.length-1]+1}을 지웠어요`:`마디 ${ms[0]+1}을 지웠어요`);return}
@@ -2261,6 +2266,7 @@ const DOCK=['pal','cap','lay','prop'];
 function showDock(id){DOCK.forEach(t=>{$('#d-'+t).setAttribute('aria-selected',t===id);$('#dock-'+t).hidden=t!==id});if(id==='prop')renderProps();if(id==='lay')fillLayout()}
 DOCK.forEach(t=>$('#d-'+t).onclick=()=>showDock(t));
 function showView(v){
+  if(v!=='score'&&typeof playStop==='function'){playStop();if(rec.open)closeRec()}
   view=v;
   [['home','viewHome'],['score','viewScore'],['pub','viewPub']].forEach(([k,id])=>{$('#m-'+k).setAttribute('aria-selected',k===v);$('#'+id).hidden=k!==v});
   if(lyr.open)closeLyric(true);
@@ -2401,21 +2407,21 @@ const REC_KEYS={KeyZ:'kick',KeyX:'snare',KeyC:'snare',KeyS:'tom1',KeyD:'tom1',Ke
 const REC_ROWS=[['Q','W','E','R','T','Y','U','I','O','P'],['A','S','D','F','G','H','J','K','L'],['Z','X','C','V','B','N','M']];
 const rec={open:false,on:false,ctx:null,nb:null};
 function recCtx(){
-  if(!rec.ctx){const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;try{rec.ctx=new AC()}catch(e){return null}}
+  if(!rec.ctx){const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;try{rec.ctx=new AC({latencyHint:'interactive'})}catch(e){try{rec.ctx=new AC()}catch(e2){return null}}}
   if(rec.ctx.state==='suspended')rec.ctx.resume().catch(()=>{});
   return rec.ctx;
 }
 function recNoise(ctx){if(!rec.nb){const n=Math.floor(ctx.sampleRate*1.6),b=ctx.createBuffer(1,n,ctx.sampleRate),d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=Math.random()*2-1;rec.nb=b}return rec.nb}
 // small synthesized kit (no sound files needed)
-function playDrum(inst,when){
+function playDrum(inst,when,vel=1){
   const ctx=recCtx();if(!ctx)return;const t=Math.max(when||0,ctx.currentTime),out=ctx.destination;
-  const env=(g,peak,dec)=>{g.gain.setValueAtTime(peak,t);g.gain.exponentialRampToValueAtTime(0.0008,t+dec)};
+  const env=(g,peak,dec)=>{g.gain.setValueAtTime(Math.min(1.4,peak*vel),t);g.gain.exponentialRampToValueAtTime(0.0008,t+dec)};
   const tone=(f0,f1,dec,vol)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(f1,t+dec*0.8);env(g,vol,dec);o.connect(g).connect(out);o.start(t);o.stop(t+dec+0.02)};
   const noise=(type,freq,q,dec,vol)=>{const s=ctx.createBufferSource(),f=ctx.createBiquadFilter(),g=ctx.createGain();s.buffer=recNoise(ctx);f.type=type;f.frequency.value=freq;f.Q.value=q;env(g,vol,dec);s.connect(f).connect(g).connect(out);s.start(t);s.stop(t+dec+0.02)};
   ({kick:()=>tone(140,45,0.32,0.95),
     snare:()=>{tone(200,150,0.1,0.35);noise('bandpass',1800,0.7,0.17,0.7)},
     tom1:()=>tone(240,170,0.28,0.7),tom2:()=>tone(180,125,0.32,0.7),ftom:()=>tone(125,85,0.38,0.75),
-    hh:()=>noise('highpass',7500,0.8,0.05,0.45),
+    hh:()=>noise('highpass',7500,0.8,0.05,0.45),hho:()=>noise('highpass',6800,0.7,0.38,0.4),hhp:()=>noise('highpass',6000,0.9,0.035,0.3),
     crash:()=>{noise('highpass',5000,0.5,1.3,0.45);noise('bandpass',8000,0.8,0.9,0.25)},
     ride:()=>{noise('highpass',6500,0.6,0.55,0.25);tone(5200,5000,0.4,0.05)},
     xstick:()=>{noise('bandpass',2600,4,0.04,0.8);tone(900,700,0.04,0.25)}})[inst]?.();
@@ -2433,11 +2439,12 @@ function renderRecKb(){
 function recTempoAt(mi){for(let k=mi;k>=0;k--){const t=score.measures[k]&&score.measures[k].tempo;if(t)return t}return 0}
 function openRec(){
   if(view!=='score')showView('score');
-  rec.open=true;$('#recPanel').hidden=false;$('#tbRec').setAttribute('aria-pressed','true');renderRecKb();recCtx();
+  rec.open=true;$('#recPanel').hidden=false;$('#tbRec').setAttribute('aria-pressed','true');renderRecKb();
+  const ctx=recCtx();if(ctx){recNoise(ctx);const g=ctx.createGain();g.gain.value=0;const o=ctx.createOscillator();o.connect(g).connect(ctx.destination);o.start();o.stop(ctx.currentTime+0.05)}
   const mi=sel?Math.max(0,Math.min(score.measures.length-1,sel.m)):0;const t=recTempoAt(mi);if(t)$('#recBpm').value=t;
-  recStatus('시작할 마디를 고르고 ● 녹음 (Space) — 1마디 카운트 후 시작해요');
+  recStatus('시작할 마디를 고르고 R = 녹음 (1마디 카운트 후 시작) · Space = 재생');
 }
-function closeRec(){if(rec.on)stopRec();rec.open=false;$('#recPanel').hidden=true;$('#tbRec').setAttribute('aria-pressed','false')}
+function closeRec(){if(rec.on)stopRec();playStop();rec.open=false;$('#recPanel').hidden=true;$('#tbRec').setAttribute('aria-pressed','false')}
 function recStatus(t){$('#recStat').textContent=t}
 function flashKey(code){const el=document.querySelector(`#recKb [data-k="${code.slice(3)}"]`);if(!el)return;el.classList.add('hit');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('hit'),110)}
 
@@ -2469,7 +2476,7 @@ function recBeatAt(idx){
   while(rec.beats.length<=idx){
     const last=rec.beats[rec.beats.length-1];let mi,b;
     if(!last){mi=rec.start;b=0}else{mi=last.mi;b=last.b+1;if(b>=tiAt(mi).beats){mi++;b=0}}
-    if(mi>=score.measures.length){score.measures.push(newMeasure(tiAt(score.measures.length-1)));rec.added++;rec.dirty=true}
+    if(mi>=score.measures.length){score.measures.push(newMeasure(tiAt(score.measures.length-1)));rec.added++;rec.needFull=true}
     const ti=tiAt(mi),len=60/rec.bpm*ti.bl,t=last?last.t+last.len:rec.t0;
     rec.beats.push({mi,b,t,len,hits:[],done:false});
   }
@@ -2494,6 +2501,26 @@ function recWriteBeat(bt,final){
   }
   rec.dirty=true;return carry;
 }
+// a quick dot where the hit landed; the real notes are drawn when the measure is finished
+function recMark(bt,f,inst){
+  const ml=L.mL[bt.mi];if(!ml)return;const svg=pagesEl.querySelector(`svg.page[data-p="${ml.page}"]`);if(!svg)return;
+  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W;
+  const x=mtx(ml,bt.b,f)+HEAD_W/2,y=ml.top+4-INST[inst].step*0.5;
+  const d=document.createElement('div');d.className='recmark'+(INST[inst].head==='n'?'':' x');d.dataset.m=bt.mi;
+  Object.assign(d.style,{left:(sr.left-cr.left+canvasEl.scrollLeft+x*k)+'px',top:(sr.top-cr.top+canvasEl.scrollTop+y*k)+'px',width:(1.1*k)+'px',height:(1.1*k)+'px'});
+  $('#recMarks').appendChild(d);
+}
+function recClearMarks(mi){$('#recMarks').querySelectorAll(mi==null?'.recmark':`.recmark[data-m="${mi}"]`).forEach(e=>e.remove())}
+// redraw only the page being played (much faster than the whole score); a full redraw when the layout changed
+function recDraw(mi){
+  if(rec.needFull){rec.needFull=false;render();recClearMarks();return}
+  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];
+  const ml=L.mL[mi];if(!ml){render();recClearMarks();return}
+  const old=pagesEl.querySelector(`svg.page[data-p="${ml.page}"]`);if(!old){render();recClearMarks();return}
+  const tmp=document.createElement('div');tmp.innerHTML=renderPage(ml.page,false);
+  const nw=tmp.querySelector('svg.page')||tmp.firstElementChild;if(!nw){render();return}
+  nw.style.cssText=old.style.cssText;old.replaceWith(nw);recClearMarks(mi);
+}
 function recHitAt(inst,t){
   // a hit a little before a beat belongs to that beat
   if(!rec.on)return;
@@ -2502,8 +2529,7 @@ function recHitAt(inst,t){
   const bt=recBeatAt(idx),early=Math.min(0.06,bt.len*0.12);
   if(t<bt.t-early)return; // during the count-in
   if(bt.done)return;
-  bt.hits.push({f:Math.max(0,Math.min(0.999,(t-bt.t)/bt.len)),i:inst});
-  recWriteBeat(bt,false);recRender();
+  const f=Math.max(0,Math.min(0.999,(t-bt.t)/bt.len));bt.hits.push({f,i:inst});recMark(bt,f,inst);
 }
 function recFinalizeUpTo(now,all){
   while(rec.finalized<rec.beats.length||all){
@@ -2511,28 +2537,63 @@ function recFinalizeUpTo(now,all){
     if(!all&&now<bt.t+bt.len+0.05)break;
     if(all&&bt.t>now)break;
     const carry=recWriteBeat(bt,true)||[];bt.done=true;rec.finalized++;
+    if(!all&&bt.b===tiAt(bt.mi).beats-1){const mi=bt.mi;setTimeout(()=>{if(rec.on)recDraw(mi)},0)}
     if(carry.length){const nx=recBeatAt(rec.finalized);for(const i of carry)nx.hits.push({f:0,i});if(all&&nx.t>now){recClearMeasure(nx.mi);recWriteBeat(nx,true);nx.done=true}}
   }
 }
 let recRaf=0;
-function recRender(){if(recRaf)return;recRaf=requestAnimationFrame(()=>{recRaf=0;if(rec.dirty){rec.dirty=false;render()}recPlayhead()})}
+function recRender(){if(recRaf)return;recRaf=requestAnimationFrame(()=>{recRaf=0;recPlayhead()})}
+function placePlayhead(mi,b,f){
+  const ph=$('#playhead'),ml=L.mL[mi];if(!ml){ph.hidden=true;return}
+  const x=mtx(ml,b,f)+HEAD_W/2,svg=pagesEl.querySelector(`svg.page[data-p="${ml.page}"]`);if(!svg)return;
+  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W;
+  const px=sr.left-cr.left+canvasEl.scrollLeft+x*k,py=sr.top-cr.top+canvasEl.scrollTop+(ml.top-3)*k;
+  Object.assign(ph.style,{left:px+'px',top:py+'px',height:(11*k)+'px'});ph.hidden=false;
+  const vx=px-canvasEl.scrollLeft,vy=py-canvasEl.scrollTop;
+  if(vy<20||vy+11*k>canvasEl.clientHeight-20)canvasEl.scrollTop=py-canvasEl.clientHeight*0.3;
+  if(vx<20||vx>canvasEl.clientWidth-40)canvasEl.scrollLeft=px-canvasEl.clientWidth*0.3;
+}
+/* ---------- playback: Space plays the score from the selected measure ---------- */
+const play={on:false};
+function playStart(){
+  if(rec.on)return;const ctx=recCtx();if(!ctx){toast('이 브라우저에서는 소리를 낼 수 없어요');return}
+  const N=score.measures.length,start=sel&&sel.m!=null?Math.max(0,Math.min(N-1,sel.m)):0;
+  let bpm=recTempoAt(start)||(+$('#recBpm').value)||80,t=ctx.currentTime+0.12;const ev=[],bars=[];
+  for(let mi=start;mi<N;mi++){
+    const m=score.measures[mi],ti=tiAt(mi);if(m.tempo)bpm=m.tempo;const bl=60/bpm*ti.bl;
+    let src=m;if(m.simile){for(let k=mi-1;k>=0;k--)if(!score.measures[k].simile){src=score.measures[k];break}}
+    for(const n of src.notes){
+      const D=src.divs[n.b]||1,tt=t+(n.b+n.s/D)*bl,ch=src.notes.filter(x=>x.b===n.b&&x.s===n.s);
+      const v=n.a==='ghost'?0.32:accShown(ch)?1.2:0.8;ev.push({t:tt,i:n.i,v});
+      if(n.g==='flam')ev.push({t:tt-0.035,i:n.i,v:0.35});
+      if(n.g==='drag'){ev.push({t:tt-0.07,i:n.i,v:0.32});ev.push({t:tt-0.035,i:n.i,v:0.32})}
+      if(n.tr){const half=Math.min(bl/4,0.12);ev.push({t:tt+half,i:n.i,v:v*0.85})}
+    }
+    bars.push({mi,t,bl,beats:ti.beats});t+=ti.beats*bl;
+  }
+  ev.sort((a,b)=>a.t-b.t);Object.assign(play,{on:true,ev,k:0,bars,end:t});
+  play.timer=setInterval(playTick,20);playTick();
+  if(rec.open)recStatus('▶ 재생 중 · Space로 멈춤');
+}
+function playTick(){
+  if(!play.on)return;const ctx=rec.ctx,now=ctx.currentTime;
+  while(play.k<play.ev.length&&play.ev[play.k].t<now+0.15){const e=play.ev[play.k++];playDrum(e.i,e.t,e.v)}
+  if(now>play.end+0.2){playStop();return}
+  if(!play.raf)play.raf=requestAnimationFrame(()=>{play.raf=0;if(!play.on)return;const n2=ctx.currentTime-(ctx.outputLatency||0);
+    const bar=play.bars.find(b=>n2<b.t+b.beats*b.bl)||play.bars[play.bars.length-1];if(!bar)return;
+    const pos=Math.max(0,(n2-bar.t)/bar.bl),b=Math.min(bar.beats-1,Math.floor(pos));placePlayhead(bar.mi,b,Math.min(1,pos-b))});
+}
+function playStop(){if(!play.on)return;play.on=false;clearInterval(play.timer);$('#playhead').hidden=true;if(rec.open&&!rec.on)recStatus('멈췄어요 · Space 재생 · R 녹음')}
+function togglePlay(){if(play.on)playStop();else playStart()}
 function recPlayhead(){
   const ph=$('#playhead');if(!rec.on){ph.hidden=true;return}
   const ctx=rec.ctx,now=ctx.currentTime-rec.outLat;let bt=null;
   for(let i=Math.max(0,rec.finalized-1);i<rec.beats.length;i++){const b=rec.beats[i];if(now<b.t+b.len){bt=b;break}}
   if(!bt)bt=recBeatAt(rec.beats.length);
-  const counting=now<rec.t0,ml=L.mL[bt.mi];if(!ml){ph.hidden=true;return}
-  const f=counting?0:Math.max(0,Math.min(1,(now-bt.t)/bt.len)),x=mtx(ml,bt.b,f)+HEAD_W/2;
-  const svg=pagesEl.querySelector(`svg.page[data-p="${ml.page}"]`);if(!svg)return;
-  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W;
-  const px=sr.left-cr.left+canvasEl.scrollLeft+x*k,py=sr.top-cr.top+canvasEl.scrollTop+(ml.top-3)*k;
-  Object.assign(ph.style,{left:px+'px',top:py+'px',height:(11*k)+'px'});ph.hidden=false;
-  // keep it in view
-  const vx=px-canvasEl.scrollLeft,vy=py-canvasEl.scrollTop;
-  if(vy<20||vy+11*k>canvasEl.clientHeight-20)canvasEl.scrollTop=py-canvasEl.clientHeight*0.3;
-  if(vx<20||vx>canvasEl.clientWidth-40)canvasEl.scrollLeft=px-canvasEl.clientWidth*0.3;
+  const counting=now<rec.t0;
+  placePlayhead(bt.mi,bt.b,counting?0:Math.max(0,Math.min(1,(now-bt.t)/bt.len)));
   if(counting){const left=Math.ceil((rec.t0-now)/rec.cntLen);recStatus(`카운트 ${left}…`)}
-  else recStatus(`● 녹음 중 · 마디 ${bt.mi+1} · Space로 멈춤`);
+  else recStatus(`● 녹음 중 · 마디 ${bt.mi+1} · R 또는 Space로 멈춤`);
 }
 function recTick(){
   if(!rec.on)return;const ctx=rec.ctx,ahead=ctx.currentTime+0.12;
@@ -2545,6 +2606,7 @@ function recTick(){
   recRender();
 }
 function startRec(){
+  playStop();
   const ctx=recCtx();if(!ctx){toast('이 브라우저에서는 소리를 낼 수 없어서 녹음할 수 없어요');return}
   const bpm=Math.round(+$('#recBpm').value);if(!(bpm>=30&&bpm<=300)){toast('BPM은 30~300 사이로 넣어 주세요');return}
   const start=sel&&sel.m!=null?Math.max(0,Math.min(score.measures.length-1,sel.m)):0;
@@ -2554,14 +2616,14 @@ function startRec(){
   rec.cntLen=60/bpm*ti.bl;rec.cntN=ti.beats;
   rec.t0=ctx.currentTime+0.15+rec.cntN*rec.cntLen;rec.clickT=ctx.currentTime+0.15;rec.clickI=0;
   rec.p0=performance.now();rec.a0=ctx.currentTime;
-  rec.on=true;sel=null;$('#recGo').classList.add('live');$('#recGo').innerHTML='■ 멈춤 <kbd>Space</kbd>';
+  rec.on=true;rec.needFull=false;sel=null;recClearMarks();$('#recGo').classList.add('live');$('#recGo').innerHTML='■ 멈춤 <kbd>R</kbd>';
   render();rec.timer=setInterval(recTick,20);recTick();
 }
 function stopRec(){
   if(!rec.on)return;const ctx=rec.ctx;
   recFinalizeUpTo(ctx.currentTime-rec.outLat,true);
-  rec.on=false;clearInterval(rec.timer);$('#playhead').hidden=true;
-  $('#recGo').classList.remove('live');$('#recGo').innerHTML='● 녹음 <kbd>Space</kbd>';
+  rec.on=false;clearInterval(rec.timer);$('#playhead').hidden=true;recClearMarks();
+  $('#recGo').classList.remove('live');$('#recGo').innerHTML='● 녹음 <kbd>R</kbd>';
   // drop empty measures the take added at the end
   while(score.measures.length>rec.origLen&&isBlank(score.measures[score.measures.length-1]))score.measures.pop();
   const changed=JSON.stringify(score)!==rec.before;
@@ -2574,8 +2636,9 @@ window.addEventListener('keydown',e=>{
   if(!rec.open||view!=='score')return;
   const t=e.target;if(t&&t.closest&&t.closest('input,select,textarea'))return;
   if(e.ctrlKey||e.metaKey||e.altKey)return;
-  if(e.code==='Space'){e.preventDefault();e.stopImmediatePropagation();if(!e.repeat)(rec.on?stopRec:startRec)();return}
-  if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(rec.on)stopRec();else closeRec();return}
+  if(e.code==='KeyR'){e.preventDefault();e.stopImmediatePropagation();if(!e.repeat){if(rec.on)stopRec();else{playStop();startRec()}}return}
+  if(e.code==='Space'){e.preventDefault();e.stopImmediatePropagation();if(!e.repeat){if(rec.on)stopRec();else togglePlay()}return}
+  if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(rec.on)stopRec();else if(play.on)playStop();else closeRec();return}
   const inst=REC_KEYS[e.code];
   e.preventDefault();e.stopImmediatePropagation();
   if(!inst||e.repeat)return;
@@ -2585,6 +2648,7 @@ window.addEventListener('keydown',e=>{
 $('#tbRec').onclick=()=>rec.open?closeRec():openRec();
 $('#recClose').onclick=closeRec;
 $('#recGo').onclick=()=>{(rec.on?stopRec:startRec)();$('#recGo').blur()};
+$('#recPlay').onclick=()=>{if(!rec.on)togglePlay();$('#recPlay').blur()};
 $('#recKb').addEventListener('pointerdown',e=>{const k=e.target.closest('[data-k]');if(!k)return;const code='Key'+k.dataset.k,inst=REC_KEYS[code];if(!inst)return;e.preventDefault();flashKey(code);playDrum(inst);
   if(rec.on){const ctx=rec.ctx;recHitAt(inst,ctx.currentTime-rec.outLat)}});
 
