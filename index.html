@@ -526,7 +526,7 @@ const INSTS=[
   {id:'ride',name:'라이드',step:11,head:'x',v:1,key:'r'},
   {id:'crash',name:'심벌',step:10,head:'cs',v:1,key:'c'},
   {id:'hho',name:'오픈 하이햇',step:9,head:'x',v:1,key:'o'},
-  {id:'hh',name:'하이햇',step:9,head:'x',v:1,key:'g'},
+  {id:'hh',name:'하이햇',step:9,head:'x',v:1,key:'h',alt:'g'},
   {id:'tom1',name:'하이탐',step:7,head:'n',v:1,key:'s'},
   {id:'tom2',name:'미들탐',step:6,head:'n',v:1,key:'d'},
   {id:'snare',name:'스네어',step:5,head:'n',v:1,key:'a'},
@@ -1461,7 +1461,7 @@ function renderChrome(){
   else if(sel&&sel.type==='measure')left=`마디 ${sel.m+1} / ${score.measures.length} 선택됨`+(sel.pos?` · 커서 ${beatLabel(sel.pos.u,sel.pos.b,sel.pos.k,tiAt(sel.m))} — 단축키로 음표 찍기, ← → 로 이동`:` · ${tsAt(sel.m).join('/')}`);
   else left=`${score.measures.length}마디`;
   $('#stLeft').textContent=left;
-  $('#stRight').textContent=inputMode?`입력 모드 · ${durLabel()} · 단축키로 찍고 다음 칸으로, Shift+단축키는 같은 자리에 겹치기 · Esc  `:durLabel()+'  ';
+  $('#stRight').textContent=inputMode?`입력 모드 · ${durLabel()} · 단축키로 찍고 다음 칸으로, Shift+단축키는 같은 자리에 겹치기 · N으로 끝내기  `:durLabel()+'  ';
 }
 function beatLabel(div,b,s,ti){
   if(ti.compound){const base=b*3;if(div===3)return `${base+s+1}박`;return s%2?`${base+(s-1)/2+1}&`:`${base+s/2+1}박`}
@@ -1473,7 +1473,15 @@ function beatLabel(div,b,s,ti){
 function findNote(id){for(let m=0;m<score.measures.length;m++){const n=score.measures[m].notes.find(x=>x.id===id);if(n)return {m,n}}return null}
 function getSelNote(){if(!sel||sel.type!=='note')return null;return findNote(sel.id)}
 function selMeasures(){if(!sel)return [];if(sel.type==='rest')return [sel.m];if(sel.type==='range'){const a=[];for(let i=sel.a;i<=sel.b;i++)a.push(i);return a}return [sel.m]}
-function select(s,scroll){sel=s;render(scroll)}
+function select(s,scroll){if(inputMode&&!s)s=sel;sel=s;inputCursor();render(scroll)}
+// in input mode the selection is always a cursor: clicking a note, rest or measure moves the cursor there instead of leaving input mode
+function inputCursor(){
+  if(!inputMode||!sel||(sel.type==='measure'&&sel.pos))return;
+  if(sel.type==='note'){const f=findNote(sel.id);if(f){const m=score.measures[f.m];sel={type:'measure',m:f.m,pos:posFromBeats(f.m,f.n.b+f.n.s/m.divs[f.n.b])};return}}
+  if(sel.type==='rest'&&score.measures[sel.m]){sel={type:'measure',m:sel.m,pos:posFromBeats(sel.m,sel.t)};return}
+  let mi=sel.type==='el'?((elOwner(sel.key)||{}).m??0):(sel.m??0);mi=Math.max(0,Math.min(score.measures.length-1,mi));
+  sel={type:'measure',m:mi,pos:posFromBeats(mi,0)};
+}
 function elOwner(key){
   const [t,id]=key.split(':');
   if(['acc','open','ar','tr','g','stk','cl','oc'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
@@ -1535,10 +1543,23 @@ function commit(fn,opt={}){
   const before=JSON.stringify(score);
   const res=fn();
   if(res===false)return false;
+  dedupeNotes();
   hist.u.push(before);if(hist.u.length>200)hist.u.shift();hist.r.length=0;
   delete score.pristine;userTouched=true;
   validateSel();render(opt.scroll);scheduleSave();
   return true;
+}
+// two notes of the same drum on the same spot draw as one, so deleting one would seem to do nothing: keep just one
+function dedupeNotes(){
+  const keep=sel&&sel.type==='note'?sel.id:null;
+  for(const m of score.measures){
+    if(m.notes.length<2)continue;const by=new Map();let drop=null;
+    for(const n of m.notes){const k=n.b+'|'+n.s+'|'+n.i,o=by.get(k);if(!o){by.set(k,n);continue}
+      const [stay,go]=o.id===keep||n.id!==keep?[o,n]:[n,o];
+      for(const f of ['a','g','tr','ar','h','cl','oc','du','dx'])if(go[f]!=null&&stay[f]==null)stay[f]=go[f];
+      by.set(k,stay);(drop||(drop=new Set())).add(go);if(sel&&sel.type==='note'&&sel.id===go.id)sel={...sel,id:stay.id}}
+    if(drop)m.notes=m.notes.filter(n=>!drop.has(n));
+  }
 }
 function undo(){if(!hist.u.length)return;hist.r.push(JSON.stringify(score));score=JSON.parse(hist.u.pop());validateSel();render();scheduleSave()}
 function redo(){if(!hist.r.length)return;hist.u.push(JSON.stringify(score));score=JSON.parse(hist.r.pop());validateSel();render();scheduleSave()}
@@ -1592,6 +1613,9 @@ function stampOnRest(inst,advance){
   const ok=commit(()=>{
     const m=score.measures[mi];if(!m)return false;m.simile=false;
     const s0=slotFor(m,p.b,p.k,p.u,tiAt(mi));
+    // the drum may already sit on this spot (a rest of the other voice): keep that note instead of stacking a copy
+    const ex=m.notes.find(n=>n.b===b&&n.s===s0&&n.i===inst);if(ex){sel={type:'note',m:mi,id:ex.id};nn=ex;return}
+    const twin=m.notes.find(n=>n.b===b&&n.s===s0&&INST[n.i].step===INST[inst].step&&INST[n.i].head!=='n'&&INST[inst].head!=='n');if(twin)m.notes.splice(m.notes.indexOf(twin),1);
     const n={id:nid(),b,s:s0,i:inst};m.notes.push(n);sel={type:'note',m:mi,id:n.id};nn=n;
   });
   // move on to whatever comes next (the next rest of a triplet, the next note…) so a, s, d… fill in order
@@ -1629,6 +1653,7 @@ function applyDur(m,ti,b,s,durQ){
 }
 // note input (MuseScore style): put the instrument at the cursor with the chosen length, then move on
 function enterAtCursor(inst){
+  inputCursor();
   if(!sel||sel.type!=='measure'||!sel.pos){toast('먼저 악보에서 시작할 위치를 누르세요');return}
   const durQ=curDurQ();
   commit(()=>{
@@ -1721,7 +1746,7 @@ function setInstOn(m,note,inst){
   if(inst!=='hho')delete note.oc;
   if(note.i===inst){if(note.a!=='ghost')return false;delete note.a;return true}
   if(inst==='xstick'&&note.a==='ghost')delete note.a;
-  const dup=m.notes.find(n=>n!==note&&n.b===note.b&&n.s===note.s&&n.i===inst);
+  const dup=m.notes.find(n=>n!==note&&n.b===note.b&&n.s===note.s&&(n.i===inst||(INST[n.i].step===INST[inst].step&&INST[n.i].head!=='n'&&INST[inst].head!=='n')));
   if(dup)m.notes.splice(m.notes.indexOf(dup),1);
   note.i=inst;return true;
 }
@@ -2251,15 +2276,16 @@ document.addEventListener('keydown',e=>{
   if(!e.shiftKey&&(code==='Period'||code==='NumpadDecimal'||k==='.')){e.preventDefault();toggleDot();return}
   if(!e.shiftKey&&digit>=1&&digit<=7){e.preventDefault();setDuration(DURS.find(d=>d.k===digit).q);return}
   if(letter==='n'&&!e.shiftKey){e.preventDefault();setInputMode(!inputMode);return}
-  if(k==='Escape'){if(inputMode)setInputMode(false);else if(sel)select(null);return}
+  if(k==='Escape'){if(inputMode){drawGhost(null);toast('입력 모드는 N을 다시 눌러야 끝나요');return}if(sel)select(null);return}
   if(letter==='r'&&e.shiftKey&&!inputMode&&sel&&(sel.type==='measure'||sel.type==='range')){e.preventDefault();insertMeasure(sel.m+1,sel.m);return}
   if(letter==='l'&&!e.shiftKey){e.preventDefault();startLyrics();return}
   if(letter==='v'&&e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'accent');else toast('악센트를 붙일 음표를 먼저 누르세요');return}
   if(letter==='z'&&!e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'ghost');else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
-  if(letter==='h'&&!e.shiftKey&&sel&&sel.type!=='el'){e.preventDefault();const ms=selMeasures(),all=ms.every(mi=>score.measures[mi].hidden);
+  // H hides only a whole selected measure (or range); in input mode or with a note, rest or cursor selected, H is the hi-hat key
+  if(letter==='h'&&!e.shiftKey&&!inputMode&&sel&&(sel.type==='range'||(sel.type==='measure'&&!sel.pos))){e.preventDefault();const ms=selMeasures(),all=ms.every(mi=>score.measures[mi].hidden);
     commit(()=>{for(const mi of ms){const m=score.measures[mi];if(all)delete m.hidden;else m.hidden=true}});
     toast(all?'숨김을 풀었어요':'숨겼어요 · 화면에서는 점선으로 보이고 PDF·PNG에는 안 나와요 (다시 H로 풀기)');return}
-  const inst=letter&&INSTS.find(i=>i.key===letter);
+  const inst=letter&&INSTS.find(i=>i.key===letter||i.alt===letter);
   if(inst){
     e.preventDefault();inputInst=inst.id;
     if(inputMode){if(e.shiftKey)addToLastChord(inst.id);else enterAtCursor(inst.id);return}
@@ -2274,7 +2300,15 @@ document.addEventListener('keydown',e=>{
     const dv={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[k];
     if(dv&&!NODRAG.has(sel.key.split(':')[0])){e.preventDefault();const o=elOwner(sel.key);const tg=o.kind==='note'?o.n:o.meas;const b=(tg.off&&tg.off[o.t])||[0,0],st=e.shiftKey?1:0.25;setOffset(sel.key,[b[0]+dv[0]*st,b[1]+dv[1]*st]);return}
   }
-  if(k==='Delete'||k==='Backspace'){if(sn){e.preventDefault();deleteNote(sn.n.id)}else if(sel){e.preventDefault();clearMeasures(selMeasures())}return}
+  if(k==='Delete'||k==='Backspace'){
+    // input mode: like backspace while typing, remove the note just before the cursor and step back onto its spot
+    if(inputMode){e.preventDefault();inputCursor();if(!sel||!sel.pos)return;
+      const ct=sel.m*1e3+sel.pos.b+sel.pos.k/sel.pos.u,tOf=x=>x.mi*1e3+x.n.b+x.n.s/score.measures[x.mi].divs[x.n.b];
+      const prev=orderedNotes().filter(x=>tOf(x)<ct-1e-9).pop();
+      if(!prev){toast('지울 음표가 없어요');return}
+      commit(()=>{const m=score.measures[prev.mi];m.notes.splice(m.notes.indexOf(prev.n),1);sel={type:'measure',m:prev.mi,pos:posFromBeats(prev.mi,prev.n.b+prev.n.s/m.divs[prev.n.b])}});return}
+    if(sel&&sel.type==='note'&&!sn){e.preventDefault();return}
+    if(sn){e.preventDefault();deleteNote(sn.n.id)}else if(sel){e.preventDefault();clearMeasures(selMeasures())}return}
   if(k==='ArrowUp'||k==='ArrowDown'){if(sn){e.preventDefault();const i=UP_ORDER.indexOf(sn.n.i),j=i+(k==='ArrowUp'?1:-1);if(j>=0&&j<UP_ORDER.length)setInst(sn.n.id,UP_ORDER[j])}return}
   if(k==='ArrowLeft'||k==='ArrowRight'){
     const d=k==='ArrowRight'?1:-1;
@@ -2299,8 +2333,8 @@ function setInputMode(on){
     if(sn){const m=score.measures[sn.m];sel={type:'measure',m:sn.m,pos:posFromBeats(sn.m,sn.n.b+sn.n.s/m.divs[sn.n.b])}}
     else if(sel&&sel.type!=='note'&&!sel.pos)sel={type:'measure',m:sel.m,pos:posFromBeats(sel.m,0)};
     else if(!sel)sel={type:'measure',m:0,pos:posFromBeats(0,0)};
-    toast('음표 길이(1~7)를 고르고 단축키를 누르면 찍히고 다음 칸으로 넘어가요');
-  }else drawGhost(null);
+    toast('입력 모드 · 음표 길이(1~7)를 고르고 단축키를 누르면 찍히고 다음 칸으로 넘어가요 · N을 다시 누르면 끝나요');
+  }else{drawGhost(null);toast('입력 모드를 끝냈어요')}
   render();
 }
 
