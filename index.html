@@ -705,8 +705,8 @@ function voiceLayout(m,v,ti){
     const want=new Map();for(const [s,c] of chords){const du=Math.max(0,...c.map(n=>n.du||0));if(du)want.set(s,du/ti.bl)}
     const ends=[];for(const [s,f] of want){const e=s/div+f;if(e<1-1e-9)ends.push(e)}
     const bnd=(m.rb||[]).filter(x=>x>b+1e-9&&x<b+1-1e-9).map(x=>x-b);ends.push(...bnd);
-    let D=div;
-    if(ns.length||bnd.length){let found=false;
+    let D=div;const tupB=!ti.compound&&(div===3||div===6); // a triplet / sextuplet beat keeps its grid
+    if((ns.length||bnd.length)&&!tupB){let found=false;
       for(const a of ti.render){if(ns.every(n=>(n.s*a)%div===0)&&ends.every(e=>isInt(e*a))){D=a;found=true;break}}
       if(!found)for(const a of ti.render){if(ns.every(n=>(n.s*a)%div===0)){D=a;break}}}
     const steps=[...chords.keys()].map(s=>s*D/div).sort((a,c)=>a-c);
@@ -718,7 +718,7 @@ function voiceLayout(m,v,ti){
       if(steps[0]>0)pushR(0,steps[0]);
       steps.forEach((st,i)=>{
         const s0=st*div/D,end=i+1<steps.length?steps[i+1]:D,len=end-st,f=want.get(s0)||0;
-        let l2=len;if(f){const w=f*D;if(isInt(w)&&Math.round(w)<len)l2=Math.round(w)}
+        let l2=len;if(f){const w=f*D;if(isInt(w)&&Math.round(w)<len)l2=Math.round(w)}else if(tupB)l2=1; // each tuplet note is one 8th / 16th
         const n=pickNote(D,l2);
         items.push({k:'n',b,s:st,D,n,dur:durOf(ti,D,n),notes:chords.get(s0),want:f});
         if(len>n)pushR(st+n,len-n);
@@ -727,9 +727,7 @@ function voiceLayout(m,v,ti){
     // in a triplet (3) or sextuplet (6) beat, rests are written slot by slot: 8th rests / 16th rests
     if(!ti.compound&&(D===3||D===6))for(let i=items.length-1;i>=0;i--){const it=items[i];if(it.k==='r'&&it.n>1){const rs=[];for(let k=0;k<it.n;k++)rs.push({...it,s:it.s+k,n:1,dur:durOf(ti,D,1)});items.splice(i,1,...rs)}}
     // shuffle: triplet with the 1st and 3rd notes -> two beamed 8ths with an 8th rest under the beam
-    if(!ti.compound&&D===3&&items.length===2&&items[0].k==='n'&&items[0].s===0&&items[0].n===2&&!items[0].want&&items[1].k==='n'&&items[1].s===2){
-      items[0].n=1;items[0].dur=durOf(ti,3,1);items.splice(1,0,{k:'r',b,s:1,D,n:1,dur:durOf(ti,3,1),bt:true});
-    }
+    if(!ti.compound&&D===3&&items.length===3&&items[0].k==='n'&&items[0].s===0&&items[1].k==='r'&&items[1].s===1&&items[2].k==='n'&&items[2].s===2)items[1].bt=true;
     beats.push({b,D,items,tup:!ti.compound&&(D===3||D===6)&&items.length>1?D:0});
   }
   if(!any&&!(v===1&&m.rb&&m.rb.length))return {mrest:true,items:[],groups:[],tuplets:[]};
