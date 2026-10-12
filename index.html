@@ -762,7 +762,7 @@ function natural(mi,vl1,vl2,ti){
     const key=t=>Math.round(t*1e4)/1e4;
     const add=(t,n)=>{const k=key(t);need.set(k,Math.max(need.get(k)||0,n))};
     for(const vl of [vl1,vl2]) if(!vl.mrest) for(const it of vl.items) if(it.b===b){
-      add(it.s/it.D,1.8+(it.dur.dots?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.a==='ghost'&&INST[n.i].head!=='n')?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.ar)?0.9:0));
+      add(it.s/it.D,1.8+(it.dur.dots?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.ar)?0.9:0));
       if(it.k==='n'){const g=Math.max(0,...it.notes.map(graceW));if(g){const k=key(it.s/it.D);gw.set(k,Math.max(gw.get(k)||0,g))}}
     }
     for(const l of m.lyrics) if(l.b===b) add(l.s/l.d,lyrW(l.t));
@@ -782,6 +782,22 @@ function headerH(){return 1.5+txs('title').sz*1.2+(score.subtitle?txs('sub').sz*
 const hasMarks=m=>m.section||m.segno||m.coda||m.ds||m.tempo;
 const rowMarks=(m,first)=>(m.section&&!first)||m.segno||m.coda||m.ds||m.tempo;
 let layoutPer=4;
+// how far a part label at the start of a line must rise so it clears the notes underneath it (estimate for layout)
+function secLiftFor(mi,sx,hw,mw,nat){
+  const m=score.measures[mi];if(!m||!m.section||!nat)return 0;
+  const st=txs('sec'),boxR=sx+textW(m.section,st.sz,st.w,SEC_FONT)+st.sz*0.84+0.3;
+  const x0=sx+hw,area=mw-nat.lead-nat.trail,bsum=nat.beatW.reduce((a,c)=>a+c,0)||1,k=area/bsum;
+  let bx=x0+nat.lead,est=0;const groups=new Map();
+  nat.beatW.forEach((bw0,b)=>{const bw=bw0*k,pre=Math.min(nat.pre[b],bw*0.6),div=m.divs[b]||1;
+    m.notes.filter(n=>n.b===b).forEach(n=>{const x=bx+pre+(n.s/div)*(bw-pre);if(x-0.2>boxR)return;const key=b+'|'+n.s;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(n)});bx+=bw});
+  for(const ch of groups.values()){
+    if(ch.every(n=>INST[n.i].v===2))continue;
+    let t=Math.min(...ch.map(n=>4-INST[n.i].step*0.5))-UP_STEM-0.3;
+    if(accShown(ch))t-=1.35;if(ch.some(n=>n.i==='hho'))t-=1.4;
+    est=Math.min(est,t);
+  }
+  return Math.max(0,Math.round((-1.8-est)*10)/10);
+}
 function setLineN(mi,n){
   const sys=L&&L.systems.find(s=>s.ms.includes(mi));if(!sys)return;const first=sys.ms[0];n=Math.max(1,Math.min(12,n));
   if(first+n>score.measures.length&&n>sys.ms.length){toast('더 끌어올 마디가 없어요');return}
@@ -824,6 +840,7 @@ function computeLayout(){
     sys.hairs=hairs.filter(h=>h.a<=ms[ms.length-1]&&h.e>=ms[0]);
     sys.above=6.2+(ms.some((k,ix)=>rowMarks(score.measures[k],ix===0))?2.6:0)+(sys.hairs.length?1.2:0);
     sys.markShift=sys.hairs.length?1.2:0;
+    sys.secLift=secLiftFor(ms[0],sx,hw,widths[ms[0]],NAT[ms[0]]);if(sys.secLift){sys.above+=sys.secLift;sys.markShift+=sys.secLift}
     const lo=score.voices===2?0:-2.2;sys.lo=lo;
     sys.lyrY=LYR_Y+lo;
     sys.below=(sys.hasLyr?7.6:6.4)+lo;
@@ -868,7 +885,7 @@ function computeLayout(){
     for(let it=0;it<14;it++){const mid=(lo+hi)/2;setScale(mid);if(pack().pages.length<=maxP)lo=mid;else hi=mid}
     sc=lo;setScale(sc);res=pack();
   }
-  L={VL,NAT,TIS,...res,hairs,scale:sc,heads:[],rests:[],tempoPos:{},hdrPos:{},secPos:{},mTop:{}};
+  L={VL,NAT,TIS,...res,hairs,scale:sc,heads:[],rests:[],tempoPos:{},hdrPos:{},secPos:{},mTop:{},tops:[]};
 }
 const mtx=(ml,b,f)=>ml.beatX[b]+ml.pre[b]+f*(ml.beatW[b]-ml.pre[b]);
 
@@ -931,7 +948,7 @@ function renderSystem(sys,exp){
     o+=tsGlyphs(tx,top+1,score.ts[0],w)+tsGlyphs(tx,top+3,score.ts[1],w);
   }
   for(const mi of sys.ms)o+=renderMeasure(mi,sys,exp);
-  if(score.showNums&&sys.ms[0]>0){const sm=score.measures[sys.ms[0]];o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(sm.section?top-2.4-txs('sec').sz*1.42-0.5:top-1.2)}">${sys.ms[0]+1}</text>`}
+  if(score.showNums&&sys.ms[0]>0){const sm=score.measures[sys.ms[0]];o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(sm.section?top-2.4-(sys.secLift||0)-txs('sec').sz*1.42-0.5:top-1.2)}">${sys.ms[0]+1}</text>`}
   for(const h of sys.hairs)o+=drawHairpin(h,sys,exp);
   return o;
 }
@@ -992,12 +1009,14 @@ function renderMeasure(mi,sys,exp){
     o+=`<rect class="mhit${on?' on':''}" data-m="${mi}" x="${r(ml.x)}" y="${r(top-2.4)}" width="${r(ml.w)}" height="8.8"/>`;
   }
   // marks row above the staff: section box, segno, coda, tempo; D.S. at the right
-  const rowY=top-7.05-(sys.markShift||0);let mx=ml.x+0.2;
+  const rowY=top-7.05-(sys.markShift||0);let mx=ml.x+0.2,secLater=null;
   if(m.section){const st=txs('sec'),cap=st.sz*0.72,pad=st.sz*0.42,padV=st.sz*0.35,w=textW(m.section,st.sz,st.w,SEC_FONT)+pad*2,h=cap+padV*2;
     // a part label on the first measure of a line sits at the top-left corner of the staff
-    const first=mi===sys.ms[0],bx=first?sys.sx:mx,by=first?top-2.4-padV:rowY;
-    if(!exp){const so=offOf(m,'sec');L.secPos[mi]={page:ml.page,x:bx+pad+(so?so[0]:0),y:by+(so?so[1]:0)}}
-    o+=elG('sec:'+mi,offOf(m,'sec'),`<rect x="${r(bx)}" y="${r(by-cap-padV)}" width="${r(w)}" height="${r(h)}" fill="none" class="ln" stroke-width="0.16"/><text class="tx t-sec" x="${r(bx+pad)}" y="${r(by)}">${esc(m.section)}</text>`,[bx,by-cap-padV,w,h]);if(!first)mx+=w+0.9}
+    const first=mi===sys.ms[0];
+    const drawSec=(bx,by)=>{if(!exp){const so=offOf(m,'sec');L.secPos[mi]={page:ml.page,x:bx+pad+(so?so[0]:0),y:by+(so?so[1]:0)}}
+    return elG('sec:'+mi,offOf(m,'sec'),`<rect x="${r(bx)}" y="${r(by-cap-padV)}" width="${r(w)}" height="${r(h)}" fill="none" class="ln" stroke-width="0.16"/><text class="tx t-sec" x="${r(bx+pad)}" y="${r(by)}">${esc(m.section)}</text>`,[bx,by-cap-padV,w,h])};
+    if(first)secLater=()=>{let b=top-2.4;for(const t of (L.tops||[]))if(t.mi===mi&&t.x0<sys.sx+w+0.3)b=Math.min(b,t.t-0.6);return drawSec(sys.sx,b-padV)};
+    else{o+=drawSec(mx,rowY);mx+=w+0.9}}
   if(m.segno){o+=elG('segno:'+mi,offOf(m,'segno'),glyph(mx,rowY+0.35,G.segno,'',3),[mx-0.2,rowY-2.3,2.4,2.8]);mx+=2.6}
   if(m.coda){o+=elG('coda:'+mi,offOf(m,'coda'),glyph(mx,rowY+0.05,G.coda,'',3),[mx-0.2,rowY-2.3,2.6,2.8]);mx+=2.9}
   if(m.tempo){
@@ -1018,7 +1037,7 @@ function renderMeasure(mi,sys,exp){
     o+=`<line x1="${r(cx)}" y1="${r(top-1.6)}" x2="${r(cx)}" y2="${r(top+5.6)}" stroke="var(--sel)" stroke-width="0.22"/><path d="M${r(cx-0.55)} ${r(top-2.4)}h1.1l-.55.8z" fill="var(--sel)"/>`}
   if(!exp&&m.lineBreak){const x=xr-(m.pageBreak?2.9:1.4),y=top-4.3;o+=elG('lnbrk:'+mi,null,`<path class="brk" d="M${r(x+1.1)} ${r(y)}v1.1h-1M${r(x+0.45)} ${r(y+0.65)}l-.45.45.45.45"/>`,[x-0.3,y-0.3,1.7,1.9])}
   if(!exp&&m.pageBreak){const x=xr-1.3,y=top-4.2;o+=elG('pgbrk:'+mi,null,`<path class="brk" d="M${r(x)} ${r(y)}h1v1.4h-1zM${r(x+0.25)} ${r(y+0.45)}h.5M${r(x+0.25)} ${r(y+0.8)}h.5"/>`,[x-0.3,y-0.3,1.6,2])}
-  if(m.simile){o+=glyph(ml.x+ml.w/2-0.96,top+2,G.simile);return o}
+  if(m.simile){o+=glyph(ml.x+ml.w/2-0.96,top+2,G.simile);if(secLater)o+=secLater();return o}
   const [v1,v2]=L.VL[mi];
   if(v1.mrest&&v2.mrest)o+=wholeRest(mi,ml.x+ml.w/2-0.65,top+1,1);
   else o+=drawVoice(v1,1,v2,ml,top,mi,exp)+drawVoice(v2,2,v1,ml,top,mi,exp);
@@ -1026,6 +1045,7 @@ function renderMeasure(mi,sys,exp){
     const x=mtx(ml,l.b,l.s/l.d)+HEAD_W/2+(l.dx||0);
     o+=`<text class="tx t-lyr" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle">${esc(l.t)}</text>`;
   });
+  if(secLater)o+=secLater();
   return o;
 }
 function drawVoice(vl,v,other,ml,top,mi,exp){
@@ -1146,8 +1166,10 @@ function drawChord(it,up,top,mi,selId,exp){
     const ins=INST[q.n.i];
     const isSel=q.n.id===selId?'sel':'';
     // ghost note: a smaller hollow head that keeps touching the stem; cymbal-type heads keep brackets
-    const smallGhost=q.n.a==='ghost'&&ins.head==='n',paren=q.n.a==='ghost'&&!smallGhost;
-    if(smallGhost)o+=glyph(up?hx+HEAD_W*0.07:hx,q.y,G.headHalf,isSel,3.72);else o+=headMarkup(ins,hx,q.y,fl,isSel);
+    // ghost note: a hollow circle a little smaller than a snare head, touching the stem (any instrument)
+    const ghost=q.n.a==='ghost',paren=false;
+    if(ghost){const gr=0.48,cx=up?hx+HEAD_W-gr-0.05:hx+gr+0.05;o+=`<circle class="ln" cx="${r(cx)}" cy="${r(q.y)}" r="${gr}" fill="none" stroke-width="0.16"${isSel?' style="stroke:var(--sel)"':''}/>`}
+    else o+=headMarkup(ins,hx,q.y,fl,isSel);
     if(q.n.g){const gx=hx-(paren?0.45:0);o+=elG('g:'+q.n.id,offOf(q.n,'g'),drawGrace(q.n,gx,q.y,isSel),[gx-(q.n.g==='drag'?2.6:2.0),q.y-2.4,q.n.g==='drag'?2.2:1.6,3.2])}
     if(paren)o+=glyph(hx-0.47,q.y,G.parL,isSel)+glyph(hx+HEAD_W+0.07,q.y,G.parR,isSel);
     if(it.dur.dots){const dx=it.x+HEAD_W+0.4+(anyR?HEAD_W:0)+(paren?0.45:0);o+=glyph(dx,q.st%2===0?q.y+(up?-0.5:0.5):q.y,G.dot)}
@@ -1166,7 +1188,7 @@ function drawChord(it,up,top,mi,selId,exp){
   let ay=up?Math.min(it.tip,it.yTop)-0.65:Math.max(it.tip,it.yBot)+0.65;
   if(acc){const an=it.notes.find(isAcc),ax=it.x+HEAD_W/2-0.72;o+=elG('acc:'+an.id,offOf(an,'acc'),glyph(ax,ay,up?G.accA:G.accB),[ax-0.15,up?ay-1.1:ay-0.15,1.75,1.25]);ay+=up?-1.25:1.25}
   if(open){const on=it.notes.find(n=>n.i==='hho'),ox=it.x+HEAD_W/2-0.56,oy=up?ay:ay+1.12;o+=elG('open:'+on.id,offOf(on,'open'),glyph(ox,oy,G.open),[ox-0.15,oy-1.25,1.45,1.4])}
-  if(L.mTop){const tp=(up?(acc?ay+0.15:Math.min(it.tip,it.yTop)):it.yTop-0.5)-(open?1.3:0);if(L.mTop[mi]==null||tp<L.mTop[mi])L.mTop[mi]=tp}
+  if(L.mTop){const tp=(up?(acc?ay+0.15:Math.min(it.tip,it.yTop)):it.yTop-0.5)-(open?1.3:0);if(L.mTop[mi]==null||tp<L.mTop[mi])L.mTop[mi]=tp;if(L.tops)L.tops.push({mi,x0:it.x-0.3,t:tp})}
   const arn=it.notes.find(n=>n.ar);
   if(arn){
     const x0=it.x+HEAD_W/2+(open?0.8:-0.4),y=open?(up?ay-0.56:ay+0.56):(up?ay-0.45:ay+0.45),x1=x0+1.4;
@@ -1209,7 +1231,7 @@ ${PT_FACE}svg{--paper-ink:#111111;--sel:#111111}${SVG_RULES}${textCss()}`}
 const pagesEl=$('#pages'),canvasEl=$('#canvas');let txStyleEl=null;
 function render(scrollSel){
   if(txStyleEl)txStyleEl.textContent=textCss();
-  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};
+  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];
   if(zoomFit&&canvasEl.clientWidth)fitZoom();
   pagesEl.innerHTML=L.pages.map((_,i)=>renderPage(i,false)).join('');
   const w=BASE_W*PX_PER_SP*zoom;
