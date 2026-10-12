@@ -1264,6 +1264,9 @@ function setOffset(key,off){
     if(!Object.keys(tgt.off).length)delete tgt.off});
 }
 function deleteEl(key){
+  // close an in-place editor first so it can't write the old value back afterwards
+  if(tempoMi!=null){tempoMi=null;tempoEl.hidden=true;tempoEl.blur();unhideEditing()}
+  if(hdrKey&&hdrKey.startsWith('sec:'))closeHdr(false);
   const o=elOwner(key);if(!o)return;
   if(o.kind==='measure'&&o.t==='ts'){sel={type:'measure',m:o.m};setTsFrom(o.m,tsAt(o.m-1));return}
   commit(()=>{
@@ -1544,6 +1547,7 @@ const svgI=(inner,vb='0 0 10 8')=>`<svg viewBox="${vb}" aria-hidden="true">${inn
 const T=(x,y,ch,fs=4)=>`<text class="mu" x="${x}" y="${y}" style="font-size:${fs}px">${ch}</text>`;
 function tsIcon(t){const w=tsWidthOf(t),x=5-w/2;let o=st5(1,9);const d=(n,y)=>{let s=String(n),tw=0;for(const c of s)tw+=TS_ADV[+c];let cx=5-tw/2,out='';for(const c of s){out+=T(r(cx),y,String.fromCharCode(0xE080+(+c)));cx+=TS_ADV[+c]}return out};return svgI(o+d(t[0],3)+d(t[1],5))}
 const PALETTE=[
+  {cat:'파트 표기',items:['Intro','A','B','C','Bridge','Out'].map(t=>({id:'sec:'+t,label:t,icon:()=>{const fs=Math.min(2.4,7.6/Math.max(1,textW(t,1,700,SEC_FONT))),w=textW(t,fs,700,SEC_FONT)+1.6;return svgI(`<rect class="ln" x="${r(5-w/2)}" y="${r(4-fs*0.5-0.8)}" width="${r(w)}" height="${r(fs*0.72+1.6)}" stroke-width=".18"/><text class="tx" x="5" y="${r(4+fs*0.22)}" text-anchor="middle" style="font-size:${r(fs)}px;font-weight:700;font-family:${SEC_FONT}">${t}</text>`)}}))},
   {cat:'더블 스트로크',items:[{id:'trem',label:'더블 스트로크',icon:svgI(st5()+T(3.4,5.5,G.headBlack)+`<line class="ln" x1="4.64" y1="5.3" x2="4.64" y2="1.6" stroke-width=".12"/>`+T(4.64,3.6,G.trem))}]},
   {cat:'전타음 (플램·드래그)',items:[
     {id:'flam',label:'플램',icon:svgI(st5()+T(2.6,5.5,G.flam)+T(4.6,5.5,G.headBlack)+`<line class="ln" x1="5.84" y1="5.3" x2="5.84" y2="1.8" stroke-width=".12"/><path class="fl" d="M3 6Q4.1 7 5.2 6Q4.1 6.7 3 6Z"/>`)},
@@ -1556,7 +1560,6 @@ const PALETTE=[
     {id:'hho',label:'오픈 하이햇',icon:svgI(st5(1,9,3)+T(4.15,2,G.open)+T(4.35,2.5,G.headX)+`<line class="ln" x1="5.6" y1="2.4" x2="5.6" y2="-0.6" stroke-width=".12"/>`,'0 -2 10 8')},
     {id:'arrow',label:'화살표 →',icon:svgI(`<path class="ln" d="M1.5 4H8.3M6.6 2.9 8.4 4 6.6 5.1" stroke-width=".3"/>`)},
     {id:'hh',label:'클로즈 하이햇',icon:svgI(st5(1,9,3)+T(4.35,2.5,G.headX)+`<line class="ln" x1="5.6" y1="2.4" x2="5.6" y2="-0.6" stroke-width=".12"/>`,'0 -2 10 8')}]},
-  {cat:'파트 표기',items:['Intro','A','B','C','Bridge','Out'].map(t=>({id:'sec:'+t,label:t,icon:()=>{const fs=Math.min(2.4,7.6/Math.max(1,textW(t,1,700,SEC_FONT))),w=textW(t,fs,700,SEC_FONT)+1.6;return svgI(`<rect class="ln" x="${r(5-w/2)}" y="${r(4-fs*0.5-0.8)}" width="${r(w)}" height="${r(fs*0.72+1.6)}" stroke-width=".18"/><text class="tx" x="5" y="${r(4+fs*0.22)}" text-anchor="middle" style="font-size:${r(fs)}px;font-weight:700;font-family:${SEC_FONT}">${t}</text>`)}}))},
   {cat:'반복 및 이동',items:[
     {id:'rs',label:'도돌이표 시작',icon:svgI(st5(1.6,9)+`<rect class="fl" x="1.6" y="2" width=".5" height="4"/><line class="ln" x1="2.5" y1="2" x2="2.5" y2="6" stroke-width=".16"/>`+T(2.8,3.5,G.repDot)+T(2.8,4.5,G.repDot))},
     {id:'re',label:'도돌이표 끝',icon:svgI(st5(1,8.4)+T(6.8,3.5,G.repDot)+T(6.8,4.5,G.repDot)+`<line class="ln" x1="7.6" y1="2" x2="7.6" y2="6" stroke-width=".16"/><rect class="fl" x="7.9" y="2" width=".5" height="4"/>`)},
@@ -1695,7 +1698,7 @@ pagesEl.addEventListener('pointerdown',e=>{
     const mv=ev=>{const p=svgPoint(svg2,ev),dx=p.x-start.x,dy=p.y-start.y;if(!moved&&Math.hypot(dx,dy)<0.25)return;moved=true;node.setAttribute('transform',`translate(${r(base[0]+dx)} ${r(base[1]+dy)})`)};
     const upf=ev=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
       if(moved){const p=svgPoint(svg2,ev);setOffset(key,[base[0]+p.x-start.x,base[1]+p.y-start.y])}
-      else if(o.t==='tempo')openTempo(o.m);
+      else if(o.t==='tempo'&&again)openTempo(o.m);
       else if(o.t==='sec'&&again)openHdr(key);};
     window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
     return;
@@ -1820,7 +1823,7 @@ function positionTempo(){
 }
 function closeTempo(save){
   if(tempoMi==null)return;const mi=tempoMi;tempoMi=null;tempoEl.hidden=true;unhideEditing();
-  if(!save)return;const v=validTempo(tempoEl.value);
+  if(!save||!score.measures[mi]||!score.measures[mi].tempo)return;const v=validTempo(tempoEl.value);
   if(!v){toast('템포는 20~320 사이 숫자로 넣어 주세요');return}
   if(score.measures[mi]&&score.measures[mi].tempo!==v)commit(()=>{score.measures[mi].tempo=v});
 }
