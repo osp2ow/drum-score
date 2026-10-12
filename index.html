@@ -1561,14 +1561,25 @@ function stampAt(mi,b,k,u,inst){
     if(sel&&sel.type==='measure'&&sel.pos){const d=m.divs[b];sel.pos={b,k:s0,u:d}}
   });
 }
-function stampOnRest(inst){
-  const mi=sel.m,p=posFromBeats(mi,sel.t),b=p.b;
-  commit(()=>{
+function stampOnRest(inst,advance){
+  const mi=sel.m,p=posFromBeats(mi,sel.t),b=p.b;let nn=null;
+  const ok=commit(()=>{
     const m=score.measures[mi];if(!m)return false;m.simile=false;
     const s0=slotFor(m,p.b,p.k,p.u,tiAt(mi));
-    const n={id:nid(),b,s:s0,i:inst};m.notes.push(n);sel={type:'note',m:mi,id:n.id};
+    const n={id:nid(),b,s:s0,i:inst};m.notes.push(n);sel={type:'note',m:mi,id:n.id};nn=n;
   });
+  // move on to whatever comes next (the next rest of a triplet, the next note…) so a, s, d… fill in order
+  if(ok&&advance&&nn){const list=orderedElements(),t=nn.b+nn.s/score.measures[mi].divs[nn.b];
+    const nx=list.find(x=>x.mi>mi||(x.mi===mi&&x.t>t+1e-9));if(nx)selectElement(nx)}
 }
+// every note and every visible rest, in reading order (for ← → and for moving on after a stamp)
+function orderedElements(){
+  const out=orderedNotes().map(x=>({k:'n',mi:x.mi,t:x.t,id:x.n.id}));
+  for(const r of (L.rests||[]))out.push({k:'r',mi:r.m,t:r.t,v:r.v});
+  out.sort((a,c)=>a.mi-c.mi||a.t-c.t||(a.k===c.k?0:a.k==='n'?-1:1));
+  return out;
+}
+function selectElement(x){if(x.k==='n')select({type:'note',m:x.mi,id:x.id},true);else select({type:'rest',m:x.mi,t:x.t,v:x.v},true)}
 function moveCursor(d){
   let mi=sel.m;const ti=tiAt(mi),st=1/gridU(ti);let x=posBeats(sel.pos)+d*st;
   if(x<-1e-9){if(mi===0)return;mi--;const t2=tiAt(mi);x=t2.beats-1/gridU(t2)}
@@ -2186,7 +2197,7 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();inputInst=inst.id;
     if(inputMode){if(e.shiftKey)addToLastChord(inst.id);else enterAtCursor(inst.id);return}
     if(sn){if(e.shiftKey)addToChord(sn.n.id,inst.id);else replaceNote(sn.n.id,inst.id);return}
-    if(sel&&sel.type==='rest'){stampOnRest(inst.id);return}
+    if(sel&&sel.type==='rest'){stampOnRest(inst.id,!e.shiftKey);return}
     if(sel&&sel.type==='measure'&&sel.pos){const ps=sel.pos;stampAt(sel.m,ps.b,ps.k,ps.u,inst.id);return}
     if(sel&&sel.type==='measure'){toast('음표나 쉼표를 누른 뒤 단축키를 누르면 그 자리에 찍혀요');return}
     renderChrome();return;
@@ -2200,9 +2211,10 @@ document.addEventListener('keydown',e=>{
   if(k==='ArrowUp'||k==='ArrowDown'){if(sn){e.preventDefault();const i=UP_ORDER.indexOf(sn.n.i),j=i+(k==='ArrowUp'?1:-1);if(j>=0&&j<UP_ORDER.length)setInst(sn.n.id,UP_ORDER[j])}return}
   if(k==='ArrowLeft'||k==='ArrowRight'){
     const d=k==='ArrowRight'?1:-1;
-    if(sn){e.preventDefault();const list=orderedNotes(),i=list.findIndex(x=>x.n.id===sn.n.id),nx=list[i+d];if(nx)select({type:'note',m:nx.mi,id:nx.n.id},true)}
+    if(sn||(sel&&sel.type==='rest')){e.preventDefault();const list=orderedElements();
+      const i=sn?list.findIndex(x=>x.k==='n'&&x.id===sn.n.id):list.findIndex(x=>x.k==='r'&&x.mi===sel.m&&Math.abs(x.t-sel.t)<1e-6&&x.v===sel.v);
+      const nx=list[i+d];if(i>=0&&nx)selectElement(nx)}
     else if(sel&&sel.type==='measure'&&sel.pos){e.preventDefault();moveCursor(d)}
-    else if(sel&&sel.type==='rest'){e.preventDefault();const t=sel.t,list=orderedNotes();const nx=d>0?list.find(x=>x.mi>sel.m||(x.mi===sel.m&&x.t>t+1e-9)):[...list].reverse().find(x=>x.mi<sel.m||(x.mi===sel.m&&x.t<t-1e-9));if(nx)select({type:'note',m:nx.mi,id:nx.n.id},true)}
     else if(sel){e.preventDefault();const m=Math.max(0,Math.min(score.measures.length-1,(d>0?selMeasures().pop():sel.m)+d));select({type:'measure',m},true)}
   }
 });
@@ -2235,7 +2247,7 @@ $('#unitBtns').onclick=e=>{
 $('#pads').onclick=e=>{const ab=e.target.closest('[data-art]');if(ab){const an=artNote();if(!an){toast('음표를 먼저 누른 뒤 눌러 주세요');return}toggleArt(an.n.id,ab.dataset.art);return}
   const b=e.target.closest('[data-inst]');if(!b)return;inputInst=b.dataset.inst;const sn=getSelNote();
   if(sn){if(e.shiftKey)addToChord(sn.n.id,inputInst);else replaceNote(sn.n.id,inputInst)}
-  else if(sel&&sel.type==='rest')stampOnRest(inputInst);
+  else if(sel&&sel.type==='rest')stampOnRest(inputInst,!e.shiftKey);
   else if(inputMode&&sel&&sel.type==='measure'&&sel.pos){if(e.shiftKey)addToLastChord(inputInst);else enterAtCursor(inputInst)}
   else renderChrome()};
 $('#percToggle').onclick=()=>{const p=$('#pads');p.hidden=!p.hidden;$('#percToggle').textContent=p.hidden?'펼치기':'접기';$('#percToggle').setAttribute('aria-expanded',!p.hidden);$('#percHint').hidden=p.hidden};
