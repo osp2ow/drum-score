@@ -1168,7 +1168,7 @@ function drawChord(it,up,top,mi,selId,exp){
     // ghost note: a smaller hollow head that keeps touching the stem; cymbal-type heads keep brackets
     // ghost note: a hollow circle a little smaller than a snare head, touching the stem (any instrument)
     const ghost=q.n.a==='ghost',paren=false;
-    if(ghost){const gr=0.48,cx=up?hx+HEAD_W-gr-0.05:hx+gr+0.05;o+=`<circle class="ln" cx="${r(cx)}" cy="${r(q.y)}" r="${gr}" fill="none" stroke-width="0.16"${isSel?' style="stroke:var(--sel)"':''}/>`}
+    if(ghost){const gr=0.43,cx=up?hx+HEAD_W-gr-0.05:hx+gr+0.05;o+=`<circle class="ln" cx="${r(cx)}" cy="${r(q.y)}" r="${gr}" fill="none" stroke-width="0.16"${isSel?' style="stroke:var(--sel)"':''}/>`}
     else o+=headMarkup(ins,hx,q.y,fl,isSel);
     if(q.n.g){const gx=hx-(paren?0.45:0);o+=elG('g:'+q.n.id,offOf(q.n,'g'),drawGrace(q.n,gx,q.y,isSel),[gx-(q.n.g==='drag'?2.6:2.0),q.y-2.4,q.n.g==='drag'?2.2:1.6,3.2])}
     if(paren)o+=glyph(hx-0.47,q.y,G.parL,isSel)+glyph(hx+HEAD_W+0.07,q.y,G.parR,isSel);
