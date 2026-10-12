@@ -325,7 +325,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
   <!-- SCORE -->
   <section class="view" id="viewScore">
     <div class="toolbar" role="toolbar" aria-label="음표 입력">
-      <button class="ib" id="tbInput" aria-pressed="false" title="음표 입력 모드 (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg><span class="tb-label">입력</span><kbd>N</kbd></button>
+      <button class="ib" id="tbInput" aria-pressed="false" title="여기서부터 키보드로 입력 (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg><span class="tb-label">입력</span><kbd>N</kbd></button>
       <div class="sep"></div>
       <div id="unitBtns" style="display:flex;gap:2px" role="group" aria-label="입력 단위"></div>
       <div class="sep"></div>
@@ -1141,7 +1141,7 @@ function renderMeasure(mi,sys,exp){
     if(exp)return '';
     const ml=L.mL[mi],top=sys.top,x0=mi===sys.ms[0]?sys.sx:ml.x;
     return `<g opacity=".3">${renderMeasureBody(mi,sys,exp)}</g><rect x="${r(x0+0.15)}" y="${r(top-0.6)}" width="${r(ml.x+ml.w-x0-0.3)}" height="5.2" fill="none" class="hidbox"/>`+
-      `<rect class="mhit${!inputMode&&sel&&((sel.type==='measure'&&sel.m===mi)||(sel.type==='range'&&mi>=sel.a&&mi<=sel.b))?' on':''}" data-m="${mi}" x="${r(ml.x)}" y="${r(top-2.4)}" width="${r(ml.w)}" height="8.8"/>`;
+      `<rect class="mhit${!inputMode&&sel&&((sel.type==='measure'&&sel.m===mi&&!sel.pos)||(sel.type==='range'&&mi>=sel.a&&mi<=sel.b))?' on':''}" data-m="${mi}" x="${r(ml.x)}" y="${r(top-2.4)}" width="${r(ml.w)}" height="8.8"/>`;
   }
   let o=renderMeasureBody(mi,sys,exp);
   // a measure right after a hidden one starts with its own barline
@@ -1152,7 +1152,7 @@ function renderMeasureBody(mi,sys,exp){
   const m=score.measures[mi],ml=L.mL[mi],top=sys.top,N=score.measures.length,ti=ml.ti;
   let o='';
   if(!exp){
-    const on=!inputMode&&sel&&((sel.type==='measure'&&sel.m===mi)||(sel.type==='range'&&mi>=sel.a&&mi<=sel.b));
+    const on=!inputMode&&sel&&((sel.type==='measure'&&sel.m===mi&&!sel.pos)||(sel.type==='range'&&mi>=sel.a&&mi<=sel.b));
     o+=`<rect class="mhit${on?' on':''}" data-m="${mi}" x="${r(ml.x)}" y="${r(top-2.4)}" width="${r(ml.w)}" height="8.8"/>`;
   }
   // marks row above the staff: section box, segno, coda, tempo; D.S. at the right
@@ -1186,7 +1186,7 @@ function renderMeasureBody(mi,sys,exp){
   else if(m.barEnd==='double'){o+=elG('dbl:'+mi,null,line(xr-0.55,top,xr-0.55,top+4,0.16)+line(xr-0.08,top,xr-0.08,top+4,0.16),[xr-0.9,top-0.3,1.1,4.6])}
   else if(mi===N-1){o+=line(xr-0.95,top,xr-0.95,top+4,0.16)+bar(xr-0.5,xr,top,4)}
   else o+=line(xr,top,xr,top+4,0.16);
-  if(!exp&&inputMode&&sel&&sel.type==='measure'&&sel.m===mi&&sel.pos&&sel.pos.b<ti.beats){const ps=sel.pos,cx=mtx(ml,ps.b,ps.k/ps.u)+HEAD_W/2;
+  if(!exp&&sel&&sel.type==='measure'&&sel.m===mi&&sel.pos&&sel.pos.b<ti.beats){const ps=sel.pos,cx=mtx(ml,ps.b,ps.k/ps.u)+HEAD_W/2;
     o+=`<line x1="${r(cx)}" y1="${r(top-1.6)}" x2="${r(cx)}" y2="${r(top+5.6)}" stroke="var(--sel)" stroke-width="0.22"/><path d="M${r(cx-0.55)} ${r(top-2.4)}h1.1l-.55.8z" fill="var(--sel)"/>`}
   if(!exp&&m.lineBreak){const x=xr-(m.pageBreak?2.9:1.4),y=top-4.3;o+=elG('lnbrk:'+mi,null,`<path class="brk" d="M${r(x+1.1)} ${r(y)}v1.1h-1M${r(x+0.45)} ${r(y+0.65)}l-.45.45.45.45"/>`,[x-0.3,y-0.3,1.7,1.9])}
   if(!exp&&m.pageBreak){const x=xr-1.3,y=top-4.2;o+=elG('pgbrk:'+mi,null,`<path class="brk" d="M${r(x)} ${r(y)}h1v1.4h-1zM${r(x+0.25)} ${r(y+0.45)}h.5M${r(x+0.25)} ${r(y+0.8)}h.5"/>`,[x-0.3,y-0.3,1.6,2])}
@@ -1461,7 +1461,7 @@ function renderChrome(){
   else if(sel&&sel.type==='measure')left=`마디 ${sel.m+1} / ${score.measures.length} 선택됨`+(sel.pos?` · 커서 ${beatLabel(sel.pos.u,sel.pos.b,sel.pos.k,tiAt(sel.m))} — 단축키로 음표 찍기, ← → 로 이동`:` · ${tsAt(sel.m).join('/')}`);
   else left=`${score.measures.length}마디`;
   $('#stLeft').textContent=left;
-  $('#stRight').textContent=inputMode?`입력 모드 · ${durLabel()} · 단축키로 찍고 다음 칸으로, Shift+단축키는 같은 자리에 겹치기 · N으로 끝내기  `:durLabel()+'  ';
+  $('#stRight').textContent=(sel&&sel.type==='measure'&&sel.pos)?`키보드 입력 · ${durLabel()} · 단축키로 찍고 다음 칸으로, Shift+단축키는 같은 자리에 겹치기, Backspace는 한 칸 지우기  `:durLabel()+'  ';
 }
 function beatLabel(div,b,s,ti){
   if(ti.compound){const base=b*3;if(div===3)return `${base+s+1}박`;return s%2?`${base+(s-1)/2+1}&`:`${base+s/2+1}박`}
@@ -1475,8 +1475,9 @@ function getSelNote(){if(!sel||sel.type!=='note')return null;return findNote(sel
 function selMeasures(){if(!sel)return [];if(sel.type==='rest')return [sel.m];if(sel.type==='range'){const a=[];for(let i=sel.a;i<=sel.b;i++)a.push(i);return a}return [sel.m]}
 function select(s,scroll){if(inputMode&&!s)s=sel;sel=s;inputCursor();render(scroll)}
 // in input mode the selection is always a cursor: clicking a note, rest or measure moves the cursor there instead of leaving input mode
-function inputCursor(){
-  if(!inputMode||!sel||(sel.type==='measure'&&sel.pos))return;
+function inputCursor(force){
+  if(!sel){if(force)sel={type:'measure',m:0,pos:posFromBeats(0,0)};return}
+  if((!inputMode&&!force)||(sel.type==='measure'&&sel.pos))return;
   if(sel.type==='note'){const f=findNote(sel.id);if(f){const m=score.measures[f.m];sel={type:'measure',m:f.m,pos:posFromBeats(f.m,f.n.b+f.n.s/m.divs[f.n.b])};return}}
   if(sel.type==='rest'&&score.measures[sel.m]){sel={type:'measure',m:sel.m,pos:posFromBeats(sel.m,sel.t)};return}
   let mi=sel.type==='el'?((elOwner(sel.key)||{}).m??0):(sel.m??0);mi=Math.max(0,Math.min(score.measures.length-1,mi));
@@ -1653,7 +1654,7 @@ function applyDur(m,ti,b,s,durQ){
 }
 // note input (MuseScore style): put the instrument at the cursor with the chosen length, then move on
 function enterAtCursor(inst){
-  inputCursor();
+  inputCursor(true);
   if(!sel||sel.type!=='measure'||!sel.pos){toast('먼저 악보에서 시작할 위치를 누르세요');return}
   const durQ=curDurQ();
   commit(()=>{
@@ -1901,7 +1902,7 @@ $('#pcats').addEventListener('click',e=>{
   if(e.target.closest('#tsApply')){const n=Math.round(+$('#tsN').value),d=+$('#tsD').value;if(!isTs([n,d])){toast('위 숫자는 1~16 사이로 넣어 주세요');return}applyPalette('ts:'+n+'/'+d);return}
   const cell=e.target.closest('[data-pal]');if(cell)applyPalette(cell.dataset.pal);
 });
-function artNote(){const sn=getSelNote();if(sn)return sn;if(inputMode&&lastEntered){const f=findNote(lastEntered.id);if(f)return {m:f.m,n:f.n}}return null}
+function artNote(){const sn=getSelNote();if(sn)return sn;if((inputMode||(sel&&sel.type==='measure'&&sel.pos))&&lastEntered){const f=findNote(lastEntered.id);if(f)return {m:f.m,n:f.n}}return null}
 function artTargets(){const a=artNote();if(a)return [a];return targetNotes()}
 // fill R/L into the hand notes: from the selected note to the end of its measure, or across the selected measures
 function applySticking(pat){
@@ -2216,6 +2217,13 @@ hdrEl.addEventListener('input',positionHdr);
 hdrEl.addEventListener('blur',()=>setTimeout(()=>{if(hdrKey&&document.activeElement!==hdrEl)closeHdr(true)},120));
 
 /* ---------- keyboard ---------- */
+// clicks on the score cancel the browser's default (so notes can be dragged), which also stops keyboard focus from
+// moving here — inside the Claude app the keys then went to the chat box. Take focus on every press.
+document.addEventListener('pointerdown',e=>{
+  if(!document.hasFocus())try{window.focus()}catch(err){}
+  const ae=document.activeElement;
+  if(ae&&ae!==document.body&&ae.matches&&ae.matches('input,textarea,select')&&!(e.target.closest&&e.target.closest('input,textarea,select,label'))&&ae!==lyrEl&&ae!==tempoEl&&ae!==hdrEl)ae.blur();
+},true);
 document.addEventListener('keydown',e=>{
   const t=e.target;
   if(t===lyrEl||t===tempoEl||t===hdrEl||view!=='score')return;
@@ -2275,25 +2283,26 @@ document.addEventListener('keydown',e=>{
   }
   if(!e.shiftKey&&(code==='Period'||code==='NumpadDecimal'||k==='.')){e.preventDefault();toggleDot();return}
   if(!e.shiftKey&&digit>=1&&digit<=7){e.preventDefault();setDuration(DURS.find(d=>d.k===digit).q);return}
-  if(letter==='n'&&!e.shiftKey){e.preventDefault();setInputMode(!inputMode);return}
-  if(k==='Escape'){if(inputMode){drawGhost(null);toast('입력 모드는 N을 다시 눌러야 끝나요');return}if(sel)select(null);return}
-  if(letter==='r'&&e.shiftKey&&!inputMode&&sel&&(sel.type==='measure'||sel.type==='range')){e.preventDefault();insertMeasure(sel.m+1,sel.m);return}
+  if(letter==='n'&&!e.shiftKey){e.preventDefault();toCursor();return}
+  if(k==='Escape'){if(sel&&sel.type==='measure'&&sel.pos){select({type:'measure',m:sel.m});return}if(sel)select(null);return}
+  if(letter==='r'&&e.shiftKey&&!inputMode&&sel&&(sel.type==='range'||(sel.type==='measure'&&!sel.pos))){e.preventDefault();insertMeasure(sel.m+1,sel.m);return}
   if(letter==='l'&&!e.shiftKey){e.preventDefault();startLyrics();return}
   if(letter==='v'&&e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'accent');else toast('악센트를 붙일 음표를 먼저 누르세요');return}
   if(letter==='z'&&!e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'ghost');else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
   // H hides only a whole selected measure (or range); in input mode or with a note, rest or cursor selected, H is the hi-hat key
-  if(letter==='h'&&!e.shiftKey&&!inputMode&&sel&&(sel.type==='range'||(sel.type==='measure'&&!sel.pos))){e.preventDefault();const ms=selMeasures(),all=ms.every(mi=>score.measures[mi].hidden);
+  if(letter==='h'&&e.shiftKey&&!inputMode&&sel&&(sel.type==='range'||(sel.type==='measure'&&!sel.pos))){e.preventDefault();const ms=selMeasures(),all=ms.every(mi=>score.measures[mi].hidden);
     commit(()=>{for(const mi of ms){const m=score.measures[mi];if(all)delete m.hidden;else m.hidden=true}});
-    toast(all?'숨김을 풀었어요':'숨겼어요 · 화면에서는 점선으로 보이고 PDF·PNG에는 안 나와요 (다시 H로 풀기)');return}
+    toast(all?'숨김을 풀었어요':'숨겼어요 · 화면에서는 점선으로 보이고 PDF·PNG에는 안 나와요 (다시 Shift+H로 풀기)');return}
   const inst=letter&&INSTS.find(i=>i.key===letter||i.alt===letter);
   if(inst){
     e.preventDefault();inputInst=inst.id;
     if(inputMode){if(e.shiftKey)addToLastChord(inst.id);else enterAtCursor(inst.id);return}
     if(sn){if(e.shiftKey)addToChord(sn.n.id,inst.id);else replaceNote(sn.n.id,inst.id);return}
     if(sel&&sel.type==='rest'){stampOnRest(inst.id,!e.shiftKey);return}
-    if(sel&&sel.type==='measure'&&sel.pos){const ps=sel.pos;stampAt(sel.m,ps.b,ps.k,ps.u,inst.id);return}
-    if(sel&&sel.type==='measure'){toast('음표나 쉼표를 누른 뒤 단축키를 누르면 그 자리에 찍혀요');return}
-    renderChrome();return;
+    // a measure, a range or nothing selected: start typing at the beginning of that measure
+    if(sel&&sel.type==='range')sel={type:'measure',m:sel.a};
+    if(!(sel&&sel.type==='measure'&&sel.pos))inputCursor(true);
+    if(e.shiftKey&&lastEntered&&findNote(lastEntered.id))addToLastChord(inst.id);else enterAtCursor(inst.id);return;
   }
   if(sel&&sel.type==='el'){
     if(k==='Delete'||k==='Backspace'){e.preventDefault();deleteEl(sel.key);return}
@@ -2302,7 +2311,7 @@ document.addEventListener('keydown',e=>{
   }
   if(k==='Delete'||k==='Backspace'){
     // input mode: like backspace while typing, remove the note just before the cursor and step back onto its spot
-    if(inputMode){e.preventDefault();inputCursor();if(!sel||!sel.pos)return;
+    if(inputMode||(sel&&sel.type==='measure'&&sel.pos)){e.preventDefault();inputCursor();if(!sel||!sel.pos)return;
       const ct=sel.m*1e3+sel.pos.b+sel.pos.k/sel.pos.u,tOf=x=>x.mi*1e3+x.n.b+x.n.s/score.measures[x.mi].divs[x.n.b];
       const prev=orderedNotes().filter(x=>tOf(x)<ct-1e-9).pop();
       if(!prev){toast('지울 음표가 없어요');return}
@@ -2339,7 +2348,13 @@ function setInputMode(on){
 }
 
 /* ---------- toolbar & panels ---------- */
-$('#tbInput').onclick=()=>setInputMode(!inputMode);
+function toCursor(){
+  if(sel&&sel.type==='measure'&&sel.pos){toast('이미 커서가 있어요 · 단축키로 바로 찍으세요');return}
+  if(sel&&sel.type==='range')sel={type:'measure',m:sel.a};
+  const keep=inputMode;inputMode=true;inputCursor(true);inputMode=keep;render();
+  toast('여기서부터 키보드로 찍어요 · 음표 길이 1~7, 악기 단축키, Backspace로 한 칸 지우기');
+}
+$('#tbInput').onclick=toCursor;
 $('#unitBtns').onclick=e=>{
   const d=e.target.closest('[data-dur]');if(d){setDuration(+d.dataset.dur);return}
   if(e.target.closest('[data-dot]')){toggleDot();return}
@@ -2349,8 +2364,7 @@ $('#pads').onclick=e=>{const ab=e.target.closest('[data-art]');if(ab){const an=a
   const b=e.target.closest('[data-inst]');if(!b)return;inputInst=b.dataset.inst;const sn=getSelNote();
   if(sn){if(e.shiftKey)addToChord(sn.n.id,inputInst);else replaceNote(sn.n.id,inputInst)}
   else if(sel&&sel.type==='rest')stampOnRest(inputInst,!e.shiftKey);
-  else if(inputMode&&sel&&sel.type==='measure'&&sel.pos){if(e.shiftKey)addToLastChord(inputInst);else enterAtCursor(inputInst)}
-  else renderChrome()};
+  else{if(sel&&sel.type==='range')sel={type:'measure',m:sel.a};if(!(sel&&sel.type==='measure'&&sel.pos))inputCursor(true);if(e.shiftKey&&lastEntered&&findNote(lastEntered.id))addToLastChord(inputInst);else enterAtCursor(inputInst)}};
 $('#percToggle').onclick=()=>{const p=$('#pads');p.hidden=!p.hidden;$('#percToggle').textContent=p.hidden?'펼치기':'접기';$('#percToggle').setAttribute('aria-expanded',!p.hidden);$('#percHint').hidden=p.hidden};
 $('#tbAccent').onclick=()=>{const sn=getSelNote();if(sn)toggleArt(sn.n.id,'accent')};
 $('#tbGhost').onclick=()=>{const an=artNote();if(an)toggleArt(an.n.id,'ghost');else toast('고스트로 바꿀 음표를 먼저 누르세요')};
