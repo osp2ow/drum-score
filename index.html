@@ -592,6 +592,7 @@ function normMeasure(m,ti){
       if(n.na)o.na=1;
       if(n.h==='R'||n.h==='L')o.h=n.h;
       if(n.cl&&o.i==='hh')o.cl=1;
+      if(n.oc&&o.i==='hho')o.oc=1;
       if(Number.isFinite(+n.dx)&&n.dx)o.dx=Math.max(-12,Math.min(12,+n.dx));
       if(+n.du>0&&+n.du<=6)o.du=+n.du;
       const nof=cleanOff(n.off);if(nof)o.off=nof;
@@ -1341,10 +1342,12 @@ function drawChord(it,up,top,mi,selId,exp){
   const acc=it.notes.some(isAcc),open=it.notes.some(n=>n.i==='hho');
   let ay=up?Math.min(it.tip,it.yTop)-0.65:Math.max(it.tip,it.yBot)+0.65;
   if(acc){const an=it.notes.find(isAcc),ax=it.x+HEAD_W/2-0.72;o+=elG('acc:'+an.id,offOf(an,'acc'),glyph(ax,ay,up?G.accA:G.accB),[ax-0.15,up?ay-1.1:ay-0.15,1.75,1.25]);ay+=up?-1.25:1.25}
-  if(open){const on=it.notes.find(n=>n.i==='hho'),ox=it.x+HEAD_W/2-0.56,oy=up?ay:ay+1.12;o+=elG('open:'+on.id,offOf(on,'open'),glyph(ox,oy,G.open),[ox-0.15,oy-1.25,1.45,1.4])}
+  if(open){const on=it.notes.find(n=>n.i==='hho'),ox=it.x+HEAD_W/2-0.56,oy=up?ay:ay+1.12;o+=elG('open:'+on.id,offOf(on,'open'),glyph(ox,oy,G.open),[ox-0.15,oy-1.25,1.45,1.4]);
+    const ocn=it.notes.find(n=>n.i==='hho'&&n.oc);
+    if(ocn){const cx=it.x+HEAD_W/2,cy=up?oy-1.95:oy+0.85,hs=0.5;o+=elG('oc:'+ocn.id,offOf(ocn,'oc'),line(cx-hs,cy,cx+hs,cy,0.16)+line(cx,cy-hs,cx,cy+hs,0.16),[cx-0.75,cy-0.75,1.5,1.5])}}
   const cln=!open&&it.notes.find(n=>n.cl&&n.i==='hh');
   if(cln){const cx=it.x+HEAD_W/2,cy=up?ay-0.6:ay+0.6,hs=0.5;o+=elG('cl:'+cln.id,offOf(cln,'cl'),line(cx-hs,cy,cx+hs,cy,0.16)+line(cx,cy-hs,cx,cy+hs,0.16),[cx-0.75,cy-0.75,1.5,1.5])}
-  if(L.mTop){const tp=(up?(acc?ay+0.15:Math.min(it.tip,it.yTop)):it.yTop-0.5)-(open||cln?1.3:0);if(L.mTop[mi]==null||tp<L.mTop[mi])L.mTop[mi]=tp;if(L.tops)L.tops.push({mi,x0:it.x-0.3,t:tp})}
+  if(L.mTop){const tp=(up?(acc?ay+0.15:Math.min(it.tip,it.yTop)):it.yTop-0.5)-(open||cln?1.3:0)-(it.notes.some(n=>n.oc&&n.i==='hho')?1.3:0);if(L.mTop[mi]==null||tp<L.mTop[mi])L.mTop[mi]=tp;if(L.tops)L.tops.push({mi,x0:it.x-0.3,t:tp})}
   const arn=it.notes.find(n=>n.ar);
   if(arn){
     const x0=it.x+HEAD_W/2+(open?0.8:-0.4),y=open?(up?ay-0.56:ay+0.56):(up?ay-0.45:ay+0.45),x1=x0+1.4;
@@ -1469,12 +1472,12 @@ function selMeasures(){if(!sel)return [];if(sel.type==='rest')return [sel.m];if(
 function select(s,scroll){sel=s;render(scroll)}
 function elOwner(key){
   const [t,id]=key.split(':');
-  if(['acc','open','ar','tr','g','stk','cl'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
+  if(['acc','open','ar','tr','g','stk','cl','oc'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
   const mi=+id,m=score.measures[mi];if(!m)return null;
   const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
   return ok?{kind:'measure',t,m:mi,meas:m}:null;
 }
-const EL_NAME={shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
+const EL_NAME={oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
 function setOffset(key,off){
   commit(()=>{const o=elOwner(key);if(!o)return false;const tgt=o.kind==='note'?o.n:o.meas;
     tgt.off=tgt.off||{};if(off&&(Math.abs(off[0])>0.01||Math.abs(off[1])>0.01))tgt.off[o.t]=[r(off[0]),r(off[1])];else delete tgt.off[o.t];
@@ -1496,6 +1499,7 @@ function deleteEl(key){
       if(o.t==='g')delete o.n.g;
       if(o.t==='stk')delete o.n.h;
       if(o.t==='cl')chord.forEach(n=>delete n.cl);
+      if(o.t==='oc')chord.forEach(n=>delete n.oc);
       if(o.n.off)delete o.n.off[o.t];
       sel={type:'note',m:o.m,id:o.n.id};
     }else{
@@ -1710,6 +1714,7 @@ function addToChord(id,inst){
 }
 function setInstOn(m,note,inst){
   if(inst!=='hh')delete note.cl;
+  if(inst!=='hho')delete note.oc;
   if(note.i===inst){if(note.a!=='ghost')return false;delete note.a;return true}
   if(inst==='xstick'&&note.a==='ghost')delete note.a;
   const dup=m.notes.find(n=>n!==note&&n.b===note.b&&n.s===note.s&&n.i===inst);
@@ -1781,7 +1786,7 @@ function setTsFrom(mi,ts){
 /* ---------- palette ---------- */
 const hhIcon=mk=>svgI(`<g class="ln" fill="none" stroke-linecap="round"><line class="st" x1="1.5" y1="6" x2="8.5" y2="6"/>
   <path d="M3.9 4.9l2.2 2.2M6.1 4.9l-2.2 2.2" stroke-width=".45"/>
-  ${mk==='o'?'<circle cx="5" cy="2" r="1.05" stroke-width=".42"/>':'<path d="M3.8 2h2.4M5 0.8v2.4" stroke-width=".45"/>'}</g>`);
+  ${mk==='o'?'<circle cx="5" cy="2" r="1.05" stroke-width=".42"/>':mk==='oc'?'<circle cx="5" cy="2.7" r="0.95" stroke-width=".4"/><path d="M3.9 -0.1h2.2M5 -1.2v2.2" stroke-width=".42"/>':'<path d="M3.8 2h2.4M5 0.8v2.4" stroke-width=".45"/>'}</g>`,mk==='oc'?'0 -1.8 10 9.8':undefined);
 const st5=(x1=0.5,x2=9.5,y0=2)=>{let o='';for(let k=0;k<5;k++)o+=`<line class="st" x1="${x1}" y1="${y0+k}" x2="${x2}" y2="${y0+k}"/>`;return o};
 const svgI=(inner,vb='0 0 10 8')=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
 const T=(x,y,ch,fs=4)=>`<text class="mu" x="${x}" y="${y}" style="font-size:${fs}px">${ch}</text>`;
@@ -1800,7 +1805,8 @@ const PALETTE=[
     {id:'ghost',label:'고스트 노트',icon:svgI(`<ellipse class="ln" cx="5" cy="4" rx="1.25" ry="0.95" fill="none" stroke-width=".35" transform="rotate(-20 5 4)"/>`)},
     {id:'hho',label:'오픈 하이햇',icon:hhIcon('o')},
     {id:'arrow',label:'화살표 →',icon:svgI(`<path class="ln" d="M1.5 4H8.3M6.6 2.9 8.4 4 6.6 5.1" stroke-width=".3"/>`)},
-    {id:'hh',label:'클로즈 하이햇',icon:hhIcon('+')}]},
+    {id:'hh',label:'클로즈 하이햇',icon:hhIcon('+')},
+    {id:'hhoc',label:'오픈-클로즈',icon:hhIcon('oc')}]},
   {cat:'손 순서',items:[['R','R'],['L','L'],['RLRL','RLRL'],['LRLR','LRLR'],['RRLL','RRLL'],['RLRRLRLL','패러디들'],['clear','지우기']].map(([p,lb])=>({id:'stk:'+p,label:lb,
     icon:svgI(p==='clear'?`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:3px;font-weight:700;font-family:${SEC_FONT}">R L</text><path class="ln" d="M2 6.6 8 1.6" stroke-width=".35"/>`:`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:${p.length>4?1.75:p.length>1?2.6:3.6}px;font-weight:700;font-family:${SEC_FONT};letter-spacing:.15px">${p.length>4?p.slice(0,4)+' '+p.slice(4):p}</text>`)}))},
   {cat:'반복 및 이동',items:[
@@ -1888,6 +1894,12 @@ function applyPalette(id){
     const ts=targetNotes();if(!ts.length){toast('악센트를 붙일 음표가 없어요');return}
     const all=ts.every(x=>accShown(chordOf(x.m,x.n)));
     commit(()=>{for(const x of ts)setChordAcc(x.m,x.n,!all)});return;
+  }
+  if(id==='hhoc'){
+    const sn=getSelNote();const ts=sn?[sn]:targetNotes().filter(x=>x.n.i==='hh'||x.n.i==='hho');
+    if(!ts.length){toast('하이햇 음표를 먼저 누르세요');return}
+    const all=ts.every(x=>x.n.i==='hho'&&x.n.oc);
+    commit(()=>{for(const x of ts){if(all){delete x.n.oc;continue}setInstOn(score.measures[x.m],x.n,'hho');x.n.oc=1}});return;
   }
   if(id==='hho'||id==='hh'){
     const sn=getSelNote();
