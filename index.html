@@ -723,6 +723,8 @@ function voiceLayout(m,v,ti){
         if(len>n)pushR(st+n,len-n);
       });
     }
+    // in a triplet beat, a two-slot rest is written as two 8th rests
+    if(!ti.compound&&D===3)for(let i=items.length-1;i>=0;i--){const it=items[i];if(it.k==='r'&&it.n===2){items.splice(i,1,{...it,n:1,dur:durOf(ti,3,1)},{...it,s:it.s+1,n:1,dur:durOf(ti,3,1)})}}
     // shuffle: triplet with the 1st and 3rd notes -> two beamed 8ths with an 8th rest under the beam
     if(!ti.compound&&D===3&&items.length===2&&items[0].k==='n'&&items[0].s===0&&items[0].n===2&&!items[0].want&&items[1].k==='n'&&items[1].s===2){
       items[0].n=1;items[0].dur=durOf(ti,3,1);items.splice(1,0,{k:'r',b,s:1,D,n:1,dur:durOf(ti,3,1),bt:true});
