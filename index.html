@@ -127,8 +127,10 @@ h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.
 .perc-h .t{font-weight:600;font-size:12.5px}
 .perc-h .hint{font-size:12px}
 .perc-h button{margin-left:auto}
-.pads{display:grid;grid-template-columns:repeat(11,minmax(74px,1fr));gap:5px;padding:2px 10px 9px;overflow-x:auto}
+.pads{display:grid;grid-template-columns:repeat(13,minmax(74px,1fr));gap:5px;padding:2px 10px 9px;overflow-x:auto}
 .pads[hidden]{display:none}
+.pad.art .ic{font-weight:700;font-size:13px;letter-spacing:-.5px}
+.pad.art{border-style:dashed}
 .pad{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:7px;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:6px 8px;cursor:pointer;text-align:left}
 .pad .ic{grid-row:span 2;font-family:'Leland';font-size:22px;line-height:0;width:14px;position:relative;top:1px}
 .pad .nm{font-size:12px;font-weight:500;white-space:nowrap}
@@ -760,7 +762,7 @@ function natural(mi,vl1,vl2,ti){
     const key=t=>Math.round(t*1e4)/1e4;
     const add=(t,n)=>{const k=key(t);need.set(k,Math.max(need.get(k)||0,n))};
     for(const vl of [vl1,vl2]) if(!vl.mrest) for(const it of vl.items) if(it.b===b){
-      add(it.s/it.D,1.8+(it.dur.dots?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.a==='ghost'&&INST[n.i].head!=='n')?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.ar)?1.6:0));
+      add(it.s/it.D,1.8+(it.dur.dots?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.a==='ghost'&&INST[n.i].head!=='n')?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.ar)?0.9:0));
       if(it.k==='n'){const g=Math.max(0,...it.notes.map(graceW));if(g){const k=key(it.s/it.D);gw.set(k,Math.max(gw.get(k)||0,g))}}
     }
     for(const l of m.lyrics) if(l.b===b) add(l.s/l.d,lyrW(l.t));
@@ -1167,8 +1169,8 @@ function drawChord(it,up,top,mi,selId,exp){
   if(L.mTop){const tp=(up?(acc?ay+0.15:Math.min(it.tip,it.yTop)):it.yTop-0.5)-(open?1.3:0);if(L.mTop[mi]==null||tp<L.mTop[mi])L.mTop[mi]=tp}
   const arn=it.notes.find(n=>n.ar);
   if(arn){
-    const x0=it.x+HEAD_W/2+(open?0.8:-0.4),y=open?(up?ay-0.56:ay+0.56):(up?ay-0.45:ay+0.45),x1=x0+2.1;
-    o+=elG('ar:'+arn.id,offOf(arn,'ar'),line(x0,y,x1,y,0.12)+`<path class="ln" d="M${r(x1-0.6)} ${r(y-0.38)}L${r(x1)} ${r(y)}L${r(x1-0.6)} ${r(y+0.38)}" fill="none" stroke-width="0.12"/>`,[x0-0.1,y-0.6,2.4,1.2]);
+    const x0=it.x+HEAD_W/2+(open?0.8:-0.4),y=open?(up?ay-0.56:ay+0.56):(up?ay-0.45:ay+0.45),x1=x0+1.4;
+    o+=elG('ar:'+arn.id,offOf(arn,'ar'),line(x0,y,x1,y,0.12)+`<path class="ln" d="M${r(x1-0.6)} ${r(y-0.38)}L${r(x1)} ${r(y)}L${r(x1-0.6)} ${r(y+0.38)}" fill="none" stroke-width="0.12"/>`,[x0-0.1,y-0.6,1.7,1.2]);
   }
   return o;
 }
@@ -1237,7 +1239,8 @@ function renderChrome(){
     +`<button class="ib" data-dot="1" aria-pressed="${inputDot}" title="점 (.)" aria-label="점"><span style="font-size:26px;font-weight:700;line-height:.6">.</span></button>`
     +`<button class="ib" data-trip="1" aria-pressed="${inputTrip}" title="셋잇단 (Ctrl+3)"><span class="tb-label" style="font-weight:700">3</span><span class="tb-label">잇단</span></button>`;
   const sn=getSelNote(),active=sn?sn.n.i:inputInst;
-  $('#pads').innerHTML=PAD_ORDER.map(id=>{const ins=INST[id];return `<button class="pad${ins.v===2?' v2':''}" data-inst="${id}" aria-pressed="${id===active}" title="${ins.name} (${ins.key.toUpperCase()})"><span class="ic">${ins.head==='cs'?'<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 3.4V12.6M4 5.7 12 10.3M4 10.3 12 5.7" stroke="currentColor" stroke-width="1.3"/></svg>':ins.head==='x'?G.headX:ins.head==='cx'?G.headCX:G.headBlack}</span><span class="nm">${ins.name}</span><span class="k">${ins.key.toUpperCase()}</span></button>`}).join('');
+  const an=artNote();
+  $('#pads').innerHTML=[['accent','악센트','>','Shift+.'],['ghost','고스트','( )','Shift+9']].map(([k,nm,ic,key])=>`<button class="pad art" data-art="${k}" aria-pressed="${!!(an&&an.n.a===k)}" title="${nm} (${key})"><span class="ic">${ic}</span><span class="nm">${nm}</span><span class="k">${key}</span></button>`).join('')+PAD_ORDER.map(id=>{const ins=INST[id];return `<button class="pad${ins.v===2?' v2':''}" data-inst="${id}" aria-pressed="${id===active}" title="${ins.name} (${ins.key.toUpperCase()})"><span class="ic">${ins.head==='cs'?'<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 3.4V12.6M4 5.7 12 10.3M4 10.3 12 5.7" stroke="currentColor" stroke-width="1.3"/></svg>':ins.head==='x'?G.headX:ins.head==='cx'?G.headCX:G.headBlack}</span><span class="nm">${ins.name}</span><span class="k">${ins.key.toUpperCase()}</span></button>`}).join('');
   $('#tbAccent').disabled=$('#tbGhost').disabled=!sn;$('#tbDel').disabled=!sel||sel.type==='rest';
   $('#tbUndo').disabled=!hist.u.length;$('#tbRedo').disabled=!hist.r.length;
   showZoom();
@@ -1559,16 +1562,17 @@ const svgI=(inner,vb='0 0 10 8')=>`<svg viewBox="${vb}" aria-hidden="true">${inn
 const T=(x,y,ch,fs=4)=>`<text class="mu" x="${x}" y="${y}" style="font-size:${fs}px">${ch}</text>`;
 function tsIcon(t){const w=tsWidthOf(t),x=5-w/2;let o=st5(1,9);const d=(n,y)=>{let s=String(n),tw=0;for(const c of s)tw+=TS_ADV[+c];let cx=5-tw/2,out='';for(const c of s){out+=T(r(cx),y,String.fromCharCode(0xE080+(+c)));cx+=TS_ADV[+c]}return out};return svgI(o+d(t[0],3)+d(t[1],5))}
 const PALETTE=[
-  {cat:'파트 표기',items:['Intro','A','B','C','Bridge','Out'].map(t=>({id:'sec:'+t,label:t,icon:()=>{const fs=Math.min(2.4,7.6/Math.max(1,textW(t,1,700,SEC_FONT))),w=textW(t,fs,700,SEC_FONT)+1.6;return svgI(`<rect class="ln" x="${r(5-w/2)}" y="${r(4-fs*0.5-0.8)}" width="${r(w)}" height="${r(fs*0.72+1.6)}" stroke-width=".18"/><text class="tx" x="5" y="${r(4+fs*0.22)}" text-anchor="middle" style="font-size:${r(fs)}px;font-weight:700;font-family:${SEC_FONT}">${t}</text>`)}}))},
+  {cat:'파트 표기',items:['Intro','A','B','C','Bridge','Interlude','Out'].map(t=>({id:'sec:'+t,label:t,icon:()=>{const fs=Math.min(2.4,7.6/Math.max(1,textW(t,1,700,SEC_FONT))),w=textW(t,fs,700,SEC_FONT)+1.6;return svgI(`<rect class="ln" x="${r(5-w/2)}" y="${r(4-fs*0.5-0.8)}" width="${r(w)}" height="${r(fs*0.72+1.6)}" stroke-width=".18"/><text class="tx" x="5" y="${r(4+fs*0.22)}" text-anchor="middle" style="font-size:${r(fs)}px;font-weight:700;font-family:${SEC_FONT}">${t}</text>`)}}))},
   {cat:'더블 스트로크',items:[{id:'trem',label:'더블 스트로크',icon:svgI(st5()+T(3.4,5.5,G.headBlack)+`<line class="ln" x1="4.64" y1="5.3" x2="4.64" y2="1.6" stroke-width=".12"/>`+T(4.64,3.6,G.trem))}]},
   {cat:'전타음 (플램·드래그)',items:[
     {id:'flam',label:'플램',icon:svgI(st5()+T(2.6,5.5,G.flam)+T(4.6,5.5,G.headBlack)+`<line class="ln" x1="5.84" y1="5.3" x2="5.84" y2="1.8" stroke-width=".12"/><path class="fl" d="M3 6Q4.1 7 5.2 6Q4.1 6.7 3 6Z"/>`)},
     {id:'drag',label:'드래그',icon:svgI(st5()+T(1.7,5.5,G.headBlack,2.6)+T(2.95,5.5,G.headBlack,2.6)+`<line class="ln" x1="2.5" y1="5.4" x2="2.5" y2="3.2" stroke-width=".09"/><line class="ln" x1="3.75" y1="5.4" x2="3.75" y2="3.2" stroke-width=".09"/><rect class="fl" x="2.45" y="3.2" width="1.35" height=".32"/><rect class="fl" x="2.45" y="3.75" width="1.35" height=".32"/>`+T(4.9,5.5,G.headBlack)+`<line class="ln" x1="6.14" y1="5.3" x2="6.14" y2="1.8" stroke-width=".12"/>`)}]},
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
-  {cat:'템포',items:[60,80,100,120,140].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))},
+  {cat:'템포',items:[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))},
   {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)}]},
   {cat:'아티큘레이션',items:[
     {id:'accent',label:'악센트',icon:svgI(T(3.6,4.9,G.accA,5))},
+    {id:'ghost',label:'고스트 노트',icon:svgI(`<ellipse class="ln" cx="5" cy="4" rx="1.25" ry="0.95" fill="none" stroke-width=".35" transform="rotate(-20 5 4)"/>`)},
     {id:'hho',label:'오픈 하이햇',icon:svgI(st5(1,9,3)+T(4.15,2,G.open)+T(4.35,2.5,G.headX)+`<line class="ln" x1="5.6" y1="2.4" x2="5.6" y2="-0.6" stroke-width=".12"/>`,'0 -2 10 8')},
     {id:'arrow',label:'화살표 →',icon:svgI(`<path class="ln" d="M1.5 4H8.3M6.6 2.9 8.4 4 6.6 5.1" stroke-width=".3"/>`)},
     {id:'hh',label:'클로즈 하이햇',icon:svgI(st5(1,9,3)+T(4.35,2.5,G.headX)+`<line class="ln" x1="5.6" y1="2.4" x2="5.6" y2="-0.6" stroke-width=".12"/>`,'0 -2 10 8')}]},
@@ -1601,6 +1605,8 @@ $('#pcats').addEventListener('click',e=>{
   if(e.target.closest('#tsApply')){const n=Math.round(+$('#tsN').value),d=+$('#tsD').value;if(!isTs([n,d])){toast('위 숫자는 1~16 사이로 넣어 주세요');return}applyPalette('ts:'+n+'/'+d);return}
   const cell=e.target.closest('[data-pal]');if(cell)applyPalette(cell.dataset.pal);
 });
+function artNote(){const sn=getSelNote();if(sn)return sn;if(inputMode&&lastEntered){const f=findNote(lastEntered.id);if(f)return {m:f.m,n:f.n}}return null}
+function artTargets(){const a=artNote();if(a)return [a];return targetNotes()}
 function targetNotes(){
   const sn=getSelNote();if(sn)return [{m:sn.m,n:sn.n}];
   const out=[];for(const mi of selMeasures())for(const n of score.measures[mi].notes)out.push({m:mi,n});return out;
@@ -1611,6 +1617,11 @@ function applyPalette(id){
   if(id==='trem'||id==='flam'||id==='drag'){
     const sn=getSelNote();if(!sn){toast('붙일 음표를 먼저 누르세요');return}
     commit(()=>{const n=sn.n;if(id==='trem'){if(n.tr)delete n.tr;else n.tr=1}else{if(n.g===id)delete n.g;else n.g=id}});return;
+  }
+  if(id==='ghost'){
+    const ts=artTargets();if(!ts.length){toast('고스트로 바꿀 음표를 먼저 누르세요');return}
+    const all=ts.every(x=>x.n.a==='ghost');
+    commit(()=>{for(const x of ts){if(all)delete x.n.a;else{x.n.a='ghost';chordOf(x.m,x.n).forEach(c=>{if(c!==x.n&&c.a==='accent')delete c.a})}}});return;
   }
   if(id==='accent'){
     const ts=targetNotes();if(!ts.length){toast('악센트를 붙일 음표가 없어요');return}
@@ -1889,8 +1900,8 @@ document.addEventListener('keydown',e=>{
   if(ctrl&&(k==='Delete'||k==='Backspace')){if(sel){e.preventDefault();deleteMeasures(selMeasures())}return}
   if(ctrl||e.altKey)return;
   const sn=getSelNote();
-  if(e.shiftKey&&(code==='Period'||k==='>')){if(sn){e.preventDefault();toggleArt(sn.n.id,'accent')}return}
-  if(e.shiftKey&&(code==='Digit9'||code==='Digit0'||k==='('||k===')')){if(sn){e.preventDefault();toggleArt(sn.n.id,'ghost')}return}
+  if(e.shiftKey&&(code==='Period'||k==='>')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'accent')}return}
+  if(e.shiftKey&&(code==='Digit9'||code==='Digit0'||k==='('||k===')')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'ghost')}else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
   if((k==='Enter'||code==='Enter'||code==='NumpadEnter')&&!e.shiftKey&&!inputMode){
     if(!sel){toast('줄을 나눌 마디를 먼저 누르세요');return}
     e.preventDefault();applyPalette('lnbrk');const m=score.measures[selMeasures().pop()];toast(m&&m.lineBreak?'다음 마디부터 아랫줄로 내렸어요':'줄 나누기를 풀었어요');return;
@@ -1965,14 +1976,15 @@ $('#unitBtns').onclick=e=>{
   if(e.target.closest('[data-dot]')){toggleDot();return}
   if(e.target.closest('[data-trip]')){inputTrip=!inputTrip;renderChrome()}
 };
-$('#pads').onclick=e=>{const b=e.target.closest('[data-inst]');if(!b)return;inputInst=b.dataset.inst;const sn=getSelNote();
+$('#pads').onclick=e=>{const ab=e.target.closest('[data-art]');if(ab){const an=artNote();if(!an){toast('음표를 먼저 누른 뒤 눌러 주세요');return}toggleArt(an.n.id,ab.dataset.art);return}
+  const b=e.target.closest('[data-inst]');if(!b)return;inputInst=b.dataset.inst;const sn=getSelNote();
   if(sn){if(e.shiftKey)addToChord(sn.n.id,inputInst);else replaceNote(sn.n.id,inputInst)}
   else if(sel&&sel.type==='rest')stampOnRest(inputInst);
   else if(inputMode&&sel&&sel.type==='measure'&&sel.pos){if(e.shiftKey)addToLastChord(inputInst);else enterAtCursor(inputInst)}
   else renderChrome()};
 $('#percToggle').onclick=()=>{const p=$('#pads');p.hidden=!p.hidden;$('#percToggle').textContent=p.hidden?'펼치기':'접기';$('#percToggle').setAttribute('aria-expanded',!p.hidden);$('#percHint').hidden=p.hidden};
 $('#tbAccent').onclick=()=>{const sn=getSelNote();if(sn)toggleArt(sn.n.id,'accent')};
-$('#tbGhost').onclick=()=>{const sn=getSelNote();if(sn)toggleArt(sn.n.id,'ghost')};
+$('#tbGhost').onclick=()=>{const an=artNote();if(an)toggleArt(an.n.id,'ghost');else toast('고스트로 바꿀 음표를 먼저 누르세요')};
 $('#tbLyric').onclick=()=>startLyrics();
 $('#tbDel').onclick=()=>deleteSelection();
 $('#elDel').addEventListener('pointerdown',e=>e.stopPropagation());
