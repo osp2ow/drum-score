@@ -110,6 +110,8 @@ h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.
 .doctab span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .doctab button{border:0;background:none;cursor:pointer;border-radius:4px;width:22px;height:22px;font-size:15px;line-height:1;color:var(--muted)}
 .doctab button:hover{background:var(--chrome-2);color:var(--ink)}
+.addbox{position:absolute;z-index:7;display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--surface);border:1px solid var(--accent);border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.18);font-size:12.5px;white-space:nowrap}
+.addbox input{width:56px;border:1px solid var(--line);border-radius:5px;padding:3px 5px;background:var(--surface);color:var(--ink);font:inherit}
 .eldel{position:absolute;z-index:6;white-space:nowrap;width:max-content;font:600 12px/1 inherit;font-family:inherit;padding:5px 9px;border-radius:6px;border:1px solid var(--danger);background:var(--surface);color:var(--danger);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.18)}
 .eldel:hover{background:var(--danger);color:var(--surface)}
 .canvas{position:relative;overflow:auto;background:var(--desk);padding:24px 16px 36px;min-width:0}
@@ -380,6 +382,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <kbd>.</kbd><span>점 붙이기 / 떼기</span>
             <kbd>쉼표 + 1~7</kbd><span>쉼표를 누르고 숫자를 치면 쉼표 길이가 바뀌어요 (5 = 4분쉼표)</span>
             <kbd>Ctrl+3</kbd><span>셋잇단 켜기 / 끄기</span>
+            <kbd>Shift + +</kbd><span>선택한 마디 뒤에 원하는 수만큼 마디 추가</span>
             <kbd>Ctrl+숫자</kbd><span>마디 선택 후: 이 줄을 그 마디 수로 (Ctrl+5 → 5마디)</span>
             <kbd>N</kbd><span>음표 입력 모드 — 길이를 고르고 단축키를 누르면 찍히고 다음 칸으로 넘어가요. Shift+단축키는 방금 찍은 자리에 겹쳐요</span>
             <kbd>클릭+단축키</kbd><span>음표를 누르고 단축키 → 그 음표가 새 악기로 바뀌어요. 쉼표를 누르고 단축키 → 쉼표 자리에 음표가 들어가요</span>
@@ -411,6 +414,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
           <input id="lyricInput" class="lyric-input" hidden autocomplete="off" spellcheck="false" aria-label="가사 입력">
           <input id="hdrInput" class="lyric-input" hidden autocomplete="off" spellcheck="false" aria-label="악보 머리글 입력">
           <input id="tempoInput" class="lyric-input" type="number" min="20" max="320" inputmode="numeric" hidden aria-label="템포 (분당 박 수)">
+          <div class="addbox" id="addBox" hidden><span>뒤에 추가할 마디 수</span><input id="addN" type="number" min="1" max="64" value="4" inputmode="numeric" aria-label="추가할 마디 수"><button class="btn sm primary" id="addGo">추가</button></div>
           <button class="eldel" id="elDel" hidden title="선택한 기호 지우기 (Delete)">지우기</button>
           <div class="drop-veil" id="dropVeil" hidden>놓으면 악보로 바꿔서 맨 뒤에 붙여요</div>
         </div>
@@ -1282,8 +1286,32 @@ function render(scrollSel){
   if(lyr.open)positionLyric();
   if(tempoMi!=null)positionTempo();
   if(hdrKey)positionHdr();
-  positionElDel();
+  positionElDel();positionAddBox();
 }
+// Shift + "+" : add any number of empty measures right after the selected one(s)
+let addAfter=null;
+function openAddBox(){
+  if(!sel){toast('마디를 먼저 누르세요. 그 뒤에 추가돼요');return}
+  addAfter=Math.max(...selMeasures());const bx=$('#addBox');bx.hidden=false;positionAddBox();
+  const i=$('#addN');i.focus();i.select();
+}
+function positionAddBox(){
+  if(addAfter==null)return;const bx=$('#addBox'),el=pagesEl.querySelector(`.mhit[data-m="${addAfter}"]`);if(!el){bx.hidden=true;return}
+  const r1=el.getBoundingClientRect(),rc=canvasEl.getBoundingClientRect();
+  bx.style.left=(r1.right-rc.left+canvasEl.scrollLeft-bx.offsetWidth/2)+'px';bx.style.top=(r1.bottom-rc.top+canvasEl.scrollTop+6)+'px';
+}
+function closeAddBox(){addAfter=null;$('#addBox').hidden=true}
+function addMeasures(){
+  const n=Math.round(+$('#addN').value);if(!(n>=1&&n<=64)){toast('1~64 사이 숫자로 넣어 주세요');return}
+  const at=addAfter+1;closeAddBox();
+  commit(()=>{const ti=tiAt(at-1);for(let k=0;k<n;k++)score.measures.splice(at,0,newMeasure(ti));sel={type:'measure',m:at}},{scroll:true});
+  toast(`마디 ${at+1}부터 ${n}마디를 추가했어요`);
+}
+$('#addGo').addEventListener('pointerdown',e=>e.stopPropagation());
+$('#addGo').onclick=addMeasures;
+$('#addN').addEventListener('keydown',e=>{e.stopPropagation();if(e.isComposing||e.keyCode===229)return;if(e.key==='Enter'){e.preventDefault();addMeasures()}else if(e.key==='Escape'){e.preventDefault();closeAddBox()}});
+$('#addBox').addEventListener('pointerdown',e=>e.stopPropagation());
+$('#addN').addEventListener('blur',()=>setTimeout(()=>{const ae=document.activeElement;if(addAfter!=null&&ae!==$('#addN')&&ae!==$('#addGo'))closeAddBox()},150));
 function positionElDel(){
   const b=$('#elDel');const el=sel&&sel.type==='el'&&pagesEl.querySelector(`[data-el="${sel.key}"]`);
   if(!el||inputMode){b.hidden=true;return}
@@ -1658,7 +1686,7 @@ const PALETTE=[
     {id:'coda',label:'코다',icon:svgI(T(3.4,5.6,G.coda,4))},
     {id:'ds',label:'달 세뇨',icon:svgI(`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:3px;font-weight:700;font-style:italic">D.S.</text>`)}]},
   {cat:'세로줄',items:[{id:'dbl',label:'2줄 마디선',icon:svgI(st5(1,9)+`<line class="ln" x1="5" y1="2" x2="5" y2="6" stroke-width=".16"/><line class="ln" x1="5.5" y1="2" x2="5.5" y2="6" stroke-width=".16"/>`)}]},
-  {cat:'레이아웃',items:[{id:'lnbrk',label:'줄 나누기 (Enter)',icon:svgI(`<path class="ln" d="M7.6 1.8v3.4H2.6" stroke-width=".3"/><path class="ln" d="M4 3.8 2.5 5.2 4 6.6" stroke-width=".3"/>`)},{id:'pgbrk',label:'페이지 나누기',icon:svgI(`<path class="ln" d="M3.2 1h3l1 1v4.8h-4z" stroke-width=".22"/><path class="ln" d="M4 3.2h2.4M4 4.2h2.4M4 5.2h1.6" stroke-width=".18"/><path class="ln" d="M1 7.4h8" stroke-width=".18" stroke-dasharray=".5 .35"/>`)}]},
+  {cat:'레이아웃',items:[{id:'addm',label:'마디 추가 (Shift + +)',icon:svgI(st5(1,9)+`<path class="ln" d="M5 2.2v3.6M3.2 4h3.6" stroke-width=".6"/>`)},{id:'lnbrk',label:'줄 나누기 (Enter)',icon:svgI(`<path class="ln" d="M7.6 1.8v3.4H2.6" stroke-width=".3"/><path class="ln" d="M4 3.8 2.5 5.2 4 6.6" stroke-width=".3"/>`)},{id:'pgbrk',label:'페이지 나누기',icon:svgI(`<path class="ln" d="M3.2 1h3l1 1v4.8h-4z" stroke-width=".22"/><path class="ln" d="M4 3.2h2.4M4 4.2h2.4M4 5.2h1.6" stroke-width=".18"/><path class="ln" d="M1 7.4h8" stroke-width=".18" stroke-dasharray=".5 .35"/>`)}]},
 ];
 const palOpen=new Set(PALETTE.map(p=>p.cat));
 function renderPalette(){
@@ -1709,6 +1737,7 @@ function targetNotes(){
   const out=[];for(const mi of selMeasures())for(const n of score.measures[mi].notes)out.push({m:mi,n});return out;
 }
 function applyPalette(id){
+  if(id==='addm'){openAddBox();return}
   if(!sel){toast('먼저 악보에서 음표나 마디를 선택하세요');return}
   if(id.startsWith('stk:')){applySticking(id.slice(4));return}
   const ms=selMeasures(),a=ms[0],b=ms[ms.length-1];
@@ -1999,6 +2028,7 @@ document.addEventListener('keydown',e=>{
   if(ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type!=='el'&&sel.m!=null){e.preventDefault();const sys=L.systems.find(s=>s.ms.includes(sel.m));if(sys)setLineN(sel.m,k==='ArrowUp'?sys.ms.length+1:Math.max(1,sys.ms.length-1));return}
   if(ctrl&&(k==='Delete'||k==='Backspace')){if(sel){e.preventDefault();deleteMeasures(selMeasures())}return}
   if(ctrl||e.altKey)return;
+  if(k==='+'||code==='NumpadAdd'){e.preventDefault();openAddBox();return}
   const sn=getSelNote();
   if(e.shiftKey&&(code==='Period'||k==='>')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'accent')}return}
   if(e.shiftKey&&(code==='Digit9'||code==='Digit0'||k==='('||k===')')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'ghost')}else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
