@@ -886,6 +886,30 @@ function computeLayout(){
     sc=lo;setScale(sc);res=pack();
   }
   L={VL,NAT,TIS,...res,hairs,scale:sc,heads:[],rests:[],tempoPos:{},hdrPos:{},secPos:{},mTop:{},tops:[]};
+  L.lyrX=spreadLyrics();
+}
+// Lyrics never overlap: on each line, words that would touch are pushed apart as a group,
+// staying centred on where they belong (measures and beats keep their equal widths).
+function spreadLyrics(){
+  const out={},st=txs('lyr'),gap=0.6;
+  for(const sys of L.systems){
+    const items=[];
+    for(const mi of sys.ms){const ml=L.mL[mi];score.measures[mi].lyrics.forEach((l,li)=>{
+      const c=mtx(ml,l.b,l.s/l.d)+HEAD_W/2+(l.dx||0);items.push({mi,li,c,w:textW(l.t,st.sz,st.w)})})}
+    if(!items.length)continue;
+    items.sort((a,b)=>a.c-b.c);
+    const cl=[];
+    const span=g=>g.items.reduce((a,it)=>a+it.w,0)+gap*(g.items.length-1);
+    const place=g=>{const W=span(g);let off=0;const cs=g.items.map(it=>{const v=off+it.w/2;off+=it.w+gap;return v});
+      // centre the group so the words sit as close as possible to their own notes
+      g.left=g.items.reduce((a,it,i)=>a+(it.c-cs[i]),0)/g.items.length;g.right=g.left+W;g.cs=cs};
+    for(const it of items){const g={items:[it]};place(g);cl.push(g);
+      while(cl.length>1&&cl[cl.length-2].right+gap>cl[cl.length-1].left){const b=cl.pop(),a=cl.pop();const m={items:a.items.concat(b.items)};place(m);cl.push(m)}}
+    const lo=sys.sx+sys.hw,hi=sys.end;
+    for(const g of cl){let sh=0;if(g.left<lo)sh=lo-g.left;else if(g.right>hi)sh=hi-g.right;
+      g.items.forEach((it,i)=>{(out[it.mi]||(out[it.mi]={}))[it.li]=g.left+sh+g.cs[i]})}
+  }
+  return out;
 }
 const mtx=(ml,b,f)=>ml.beatX[b]+ml.pre[b]+f*(ml.beatW[b]-ml.pre[b]);
 
@@ -1042,7 +1066,7 @@ function renderMeasure(mi,sys,exp){
   if(v1.mrest&&v2.mrest)o+=wholeRest(mi,ml.x+ml.w/2-0.65,top+1,1);
   else o+=drawVoice(v1,1,v2,ml,top,mi,exp)+drawVoice(v2,2,v1,ml,top,mi,exp);
   m.lyrics.forEach((l,li)=>{
-    const x=mtx(ml,l.b,l.s/l.d)+HEAD_W/2+(l.dx||0);
+    const lx=L.lyrX&&L.lyrX[mi]&&L.lyrX[mi][li],x=lx!=null?lx:mtx(ml,l.b,l.s/l.d)+HEAD_W/2+(l.dx||0);
     o+=`<text class="tx t-lyr" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle">${esc(l.t)}</text>`;
   });
   if(secLater)o+=secLater();
@@ -1823,7 +1847,7 @@ const unhideEditing=()=>pagesEl.querySelectorAll('.editing').forEach(e=>e.classL
 function positionLyric(){
   const p=lyr.pos;if(!p)return;const ml=L.mL[p.mi];if(!ml)return;
   const m=score.measures[p.mi],li=m.lyrics.findIndex(l=>Math.abs(l.b+l.s/l.d-p.t)<1e-6),ex=li>=0?m.lyrics[li]:null;
-  placeInline(lyrEl,{page:ml.page,x:mtx(ml,p.b,p.t-p.b)+HEAD_W/2+(ex&&ex.dx||0),y:ml.top+ml.sys.lyrY,anchor:'middle',tk:'lyr',hide:li>=0?`[data-lyr="${li}"][data-m="${p.mi}"]`:null});
+  placeInline(lyrEl,{page:ml.page,x:(li>=0&&L.lyrX&&L.lyrX[p.mi]&&L.lyrX[p.mi][li]!=null)?L.lyrX[p.mi][li]:mtx(ml,p.b,p.t-p.b)+HEAD_W/2+(ex&&ex.dx||0),y:ml.top+ml.sys.lyrY,anchor:'middle',tk:'lyr',hide:li>=0?`[data-lyr="${li}"][data-m="${p.mi}"]`:null});
 }
 function commitLyric(){
   const p=lyr.pos;if(!p)return;
