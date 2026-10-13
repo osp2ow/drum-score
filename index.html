@@ -252,6 +252,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 /* SVG score (screen) */
 .mhit{fill:transparent}
+.bhit{fill:transparent;cursor:ns-resize}.beamg:hover .bhit{fill:var(--sel);fill-opacity:.12}
 .spansel{fill:var(--sel);fill-opacity:.16;stroke:var(--sel);stroke-width:.14;pointer-events:none}
 .mhit.on{fill:var(--sel);fill-opacity:.12;stroke:var(--sel);stroke-width:.14}
 .nhit{fill:transparent;cursor:pointer}
@@ -600,6 +601,7 @@ function normMeasure(m,ti){
       if(n.cl&&o.i==='hh')o.cl=1;
       if(n.oc&&o.i==='hho')o.oc=1;
       if(Number.isFinite(+n.dx)&&n.dx)o.dx=Math.max(-12,Math.min(12,+n.dx));
+      if(Number.isFinite(+n.sl)&&+n.sl)o.sl=Math.round(Math.max(-3,Math.min(10,+n.sl))*10)/10;
       if(+n.du>0&&+n.du<=6)o.du=+n.du;
       const nof=cleanOff(n.off);if(nof)o.off=nof;
       return o})
@@ -1238,6 +1240,8 @@ function renderMeasureBody(mi,sys,exp){
   if(secLater)o+=secLater();
   return o;
 }
+let beamOv=null; // live drag {key,sl}
+function stemAdj(it){const ids=it.notes.map(n=>n.id);if(beamOv&&ids.includes(beamOv.key))return beamOv.sl;return Math.max(...it.notes.map(n=>n.sl||0))||Math.min(...it.notes.map(n=>n.sl||0))||0}
 function drawVoice(vl,v,other,ml,top,mi,exp){
   const up=v===1;let o='';
   if(vl.mrest){if(v===2&&(score.hideV2Rests||score.voices!==2))return '';return wholeRest(mi,ml.x+ml.w/2-0.65,up?top:top+3,v)}
@@ -1253,18 +1257,24 @@ function drawVoice(vl,v,other,ml,top,mi,exp){
     it.tip=u?Math.min(it.yTop-UP_STEM,top+2):Math.max(it.yBot+3.5,top+2);
     if(it.dur.flags>=3)it.tip+=u?-0.6:0.6;
     it.beamed=false;
+    // the player's own stem length (+ longer, − shorter), never into the noteheads
+    const sl=stemAdj(it);if(sl){it.tip=u?Math.min(it.yTop-1.8,it.tip-sl):Math.max(it.yBot+1.8,it.tip+sl)}
+    if(L.beamOf&&!exp){for(const n of it.notes)L.beamOf[n.id]=it.notes[0].id;L.beamUp[it.notes[0].id]=u}
   }
   for(const g of vl.groups){
     const lv=Math.max(...g.map(i=>i.dur.flags)),ext=lv>2?(lv-2)*0.75:0;
     const gu=up&&!g[0].down;g.up=gu;
-    const yB=gu?Math.min(...g.map(i=>i.yTop))-UP_STEM-ext:Math.max(...g.map(i=>i.yBot))+3.5+ext;
-    g.forEach(i=>{i.tip=yB;i.beamed=true});g.yB=yB;g.lv=lv;
+    let yB=gu?Math.min(...g.map(i=>i.yTop))-UP_STEM-ext:Math.max(...g.map(i=>i.yBot))+3.5+ext;
+    // a whole beamed group gets longer or shorter together; the first chord of the group carries the setting
+    const sl=stemAdj(g[0]);if(sl)yB=gu?Math.min(Math.min(...g.map(i=>i.yTop))-1.8-ext,yB-sl):Math.max(Math.max(...g.map(i=>i.yBot))+1.8+ext,yB+sl);
+    g.forEach(i=>{i.tip=yB;i.beamed=true});g.yB=yB;g.lv=lv;g.key=g[0].notes[0].id;g.mi=mi;
+    if(L.beamOf&&!exp){for(const i of g)for(const n of i.notes)L.beamOf[n.id]=g.key;L.beamUp[g.key]=gu}
   }
   for(const it of vl.items){
     if(it.k==='r'){if(!(v===2&&score.hideV2Rests))o+=drawRest(it,up,twoV,top,mi,v);continue}
     o+=drawChord(it,up&&!it.down,top,mi,selId,exp);
   }
-  for(const g of vl.groups)o+=drawBeam(g,g.up);
+  for(const g of vl.groups){const bm=drawBeam(g,g.up);if(exp)o+=bm;else{const xs=g.map(i=>i.stemX),hb=g.up?g.yB-0.5:g.yB-0.9;o+=`<g class="beamg" data-beam="${g.key}" data-m="${mi}" data-up="${g.up?1:0}">${bm}<rect class="bhit" x="${r(xs[0]-0.3)}" y="${r(hb)}" width="${r(xs[xs.length-1]-xs[0]+0.6)}" height="1.4"/></g>`}}
   for(const tp of vl.tuplets)o+=drawTuplet(tp,vl,up,top);
   return o;
 }
@@ -1433,7 +1443,7 @@ ${PT_FACE}svg{--paper-ink:#111111;--sel:#111111}${SVG_RULES}${textCss()}`}
 const pagesEl=$('#pages'),canvasEl=$('#canvas');let txStyleEl=null;
 function render(scrollSel){
   if(txStyleEl)txStyleEl.textContent=textCss();
-  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];L.txtPos={};
+  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];L.txtPos={};L.beamOf={};L.beamUp={};
   if(zoomFit&&canvasEl.clientWidth)fitZoom();
   pagesEl.innerHTML=L.pages.map((_,i)=>renderPage(i,false)).join('');
   const w=BASE_W*PX_PER_SP*zoom;
@@ -1742,6 +1752,27 @@ function toggleNoteAt(mi,b,k,u,inst){
   });
 }
 function hear(inst){try{if(INST[inst])playDrum(inst,0,0.85)}catch(e){}}
+function setStemLen(key,v){
+  const f=findNote(key);if(!f)return;v=Math.round(Math.max(-3,Math.min(10,v))*10)/10;
+  commit(()=>{const ch=chordOf(f.m,f.n);ch.forEach(n=>delete n.sl);if(v)f.n.sl=v});
+}
+function nudgeStem(dirUp){
+  const sn=getSelNote();if(!sn)return false;const key=(L.beamOf&&L.beamOf[sn.n.id])||sn.n.id,f=findNote(key);if(!f)return false;
+  const d=(L.beamUp&&L.beamUp[key]===false?-0.5:0.5)*(dirUp?1:-1);
+  const cur=Math.max(...chordOf(f.m,f.n).map(n=>n.sl||0))||Math.min(...chordOf(f.m,f.n).map(n=>n.sl||0))||0;
+  setStemLen(key,cur+d);const nv=Math.round(Math.max(-3,Math.min(10,cur+d))*10)/10;toast(`세로선 길이 ${nv>0?'+':''}${nv} (기본 0)`);return true;
+}
+// drag a beam up or down: every stem under it gets longer or shorter together
+function beamDrag(e,svg,bg){
+  const key=bg.dataset.beam,up=bg.dataset.up==='1',f=findNote(key);if(!f)return;
+  const pi=svg.dataset.p,y0=svgPoint(svg,e).y,base=Math.max(...chordOf(f.m,f.n).map(n=>n.sl||0))||Math.min(...chordOf(f.m,f.n).map(n=>n.sl||0))||0;
+  let raf=0,moved=false,v=base;
+  const mv=ev=>{const sv=pagesEl.querySelector(`svg.page[data-p="${pi}"]`)||svg,dy=svgPoint(sv,ev).y-y0;if(!moved&&Math.abs(dy)<0.15)return;moved=true;
+    v=Math.round(Math.max(-3,Math.min(10,base+(up?-dy:dy)))*10)/10;beamOv={key,sl:v};if(!raf)raf=requestAnimationFrame(()=>{raf=0;render()})};
+  const upf=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
+    beamOv=null;if(moved&&v!==base){setStemLen(key,v);toast(`세로선 길이 ${v>0?'+':''}${v} (기본 0)`)}else{select({type:'note',m:f.m,id:key})}};
+  window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
+}
 function stampAt(mi,b,k,u,inst){
   hear(inst);
   commit(()=>{
@@ -2230,6 +2261,8 @@ pagesEl.addEventListener('pointerdown',e=>{
   // a click right on a notehead always picks the note, even when a mark (accent, o, slash…) sits close by
   if(!inputMode&&!e.shiftKey){const pi0=+svg.dataset.p,p0=svgPoint(svg,e),h0=headAt(pi0,p0);
     if(h0&&h0.d<0.95){e.preventDefault();select({type:'note',m:h0.m,id:h0.id});startSideDrag(e,pi0,p0,'note',h0.m,h0.id);return}}
+  const bmg=!inputMode&&!e.shiftKey&&e.target.closest('[data-beam]');
+  if(bmg){e.preventDefault();beamDrag(e,svg,bmg);return}
   const hh=!inputMode&&e.target.closest('[data-hh]');
   if(hh){e.preventDefault();const kd=hh.dataset.hk||'cresc';if(hh.dataset.side==='l')crescStartDrag(e,svg,+hh.dataset.hh,kd);else crescDrag(e,svg,+hh.dataset.hh,kd);return}
   const elx=!inputMode&&e.target.closest('[data-el]');
@@ -2453,6 +2486,7 @@ document.addEventListener('keydown',e=>{
     if(sel.type==='note'){const f=findNote(sel.id);if(f)setDx('note',f.m,sel.id,curDx('note',f.m,sel.id)+d)}else setDx('rest',sel.m,sel.t,curDx('rest',sel.m,sel.t)+d);return}
   if(ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type!=='el'&&sel.m!=null){e.preventDefault();const sys=L.systems.find(s=>s.ms.includes(sel.m));if(sys)setLineN(sel.m,k==='ArrowUp'?sys.ms.length+1:Math.max(1,sys.ms.length-1));return}
   if(ctrl&&(k==='Delete'||k==='Backspace')){if(sel){e.preventDefault();deleteMeasures(selMeasures())}return}
+  if(e.altKey&&!ctrl&&!e.shiftKey&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type==='note'){e.preventDefault();nudgeStem(k==='ArrowUp');return}
   if(e.altKey&&!ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel){e.preventDefault();lineGap(e.shiftKey,(k==='ArrowDown'?1:-1)*(e.shiftKey?1:1)*1.5*(e.shiftKey?1:1));return}
   if(ctrl||e.altKey)return;
   if(code==='Space'&&!e.shiftKey){e.preventDefault();if(!e.repeat)togglePlay();return}
