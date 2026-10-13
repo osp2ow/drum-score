@@ -252,6 +252,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 /* SVG score (screen) */
 .mhit{fill:transparent}
+.spansel{fill:var(--sel);fill-opacity:.16;stroke:var(--sel);stroke-width:.14;pointer-events:none}
 .mhit.on{fill:var(--sel);fill-opacity:.12;stroke:var(--sel);stroke-width:.14}
 .nhit{fill:transparent;cursor:pointer}
 .thit{fill:transparent;cursor:pointer}
@@ -1154,6 +1155,10 @@ function renderMeasureBody(mi,sys,exp){
   if(!exp){
     const on=!inputMode&&sel&&((sel.type==='measure'&&sel.m===mi&&!sel.pos)||(sel.type==='range'&&mi>=sel.a&&mi<=sel.b));
     o+=`<rect class="mhit${on?' on':''}" data-m="${mi}" x="${r(ml.x)}" y="${r(top-2.4)}" width="${r(ml.w)}" height="8.8"/>`;
+    if(sel&&sel.type==='span'){const ms=mStart(mi),me=ms+mTicks(mi),a=Math.max(sel.g0,ms)-ms,b=Math.min(sel.g1,me)-ms;
+      if(b>a){const bt=ti.bl*TPQ,xAt=lt=>{const bb=Math.floor(lt/bt+1e-9);return bb>=ti.beats?ml.x+ml.w-0.4:mtx(ml,bb,(lt-bb*bt)/bt)-0.5};
+        const x0=a===0?ml.x+0.3:xAt(a),x1=b>=me-ms?ml.x+ml.w-0.3:xAt(b);
+        o+=`<rect class="spansel" x="${r(x0)}" y="${r(top-2.4)}" width="${r(Math.max(0.6,x1-x0))}" height="8.8"/>`}}
   }
   // marks row above the staff: section box, segno, coda, tempo; D.S. at the right
   let secLater=null,secMark=null;
@@ -1458,6 +1463,7 @@ function renderChrome(){
   else if(sel&&sel.type==='el'){const t=sel.key.split(':')[0];left=`${EL_NAME[t]} 선택됨 · 마디 ${sel.m+1}`+(NODRAG.has(t)?' · Del 지우기':' · 드래그나 ←→↑↓(Shift는 크게)로 옮기기 · Del 지우기')}
   else if(sel&&sel.type==='rest')left=`쉼표 · 마디 ${sel.m+1} · ${restLabel()} — 1~7로 길이 바꾸기, 악기 단축키로 이 자리에 음표 넣기`;
   else if(sel&&sel.type==='range')left=`마디 ${sel.a+1}–${sel.b+1} 선택됨`;
+  else if(sel&&sel.type==='span'){const a=locate(sel.g0),n=spanNotes(sel.g0,sel.g1).length;left=`구간 · 마디 ${a.mi+1}부터 ${lenLabel(sel.g1-sel.g0)} · 음표 ${n}개 · Shift+←→ 늘이고 줄이기, Ctrl+C 복사, Backspace 비우기`}
   else if(sel&&sel.type==='measure')left=`마디 ${sel.m+1} / ${score.measures.length} 선택됨`+(sel.pos?` · 커서 ${beatLabel(sel.pos.u,sel.pos.b,sel.pos.k,tiAt(sel.m))} — 단축키로 음표 찍기, ← → 로 이동`:` · ${tsAt(sel.m).join('/')}`);
   else left=`${score.measures.length}마디`;
   $('#stLeft').textContent=left;
@@ -1472,7 +1478,7 @@ function beatLabel(div,b,s,ti){
 /* ---------- selection ---------- */
 function findNote(id){for(let m=0;m<score.measures.length;m++){const n=score.measures[m].notes.find(x=>x.id===id);if(n)return {m,n}}return null}
 function getSelNote(){if(!sel||sel.type!=='note')return null;return findNote(sel.id)}
-function selMeasures(){if(!sel)return [];if(sel.type==='rest')return [sel.m];if(sel.type==='range'){const a=[];for(let i=sel.a;i<=sel.b;i++)a.push(i);return a}return [sel.m]}
+function selMeasures(){if(!sel)return [];if(sel.type==='rest')return [sel.m];if(sel.type==='span'){const a=locate(sel.g0).mi,b=locate(sel.g1-1).mi,o=[];for(let i=a;i<=b;i++)o.push(i);return o}if(sel.type==='range'){const a=[];for(let i=sel.a;i<=sel.b;i++)a.push(i);return a}return [sel.m]}
 function select(s,scroll){if(inputMode&&!s)s=sel;sel=s;inputCursor();render(scroll)}
 // in input mode the selection is always a cursor: clicking a note, rest or measure moves the cursor there instead of leaving input mode
 function inputCursor(force){
@@ -1524,7 +1530,76 @@ function deleteEl(key){
     }
   });
 }
+/* ---------- beat-range selection (span): positions in ticks, 48 per quarter note ---------- */
+const TPQ=48;
+const mTicks=mi=>{const ti=tiAt(Math.min(mi,score.measures.length-1));return Math.round(ti.beats*ti.bl*TPQ)};
+function mStart(mi){let g=0;for(let i=0;i<mi;i++)g+=mTicks(i);return g}
+const totalTicks=()=>mStart(score.measures.length);
+function gAt(mi,x){return mStart(mi)+Math.round(x*tiAt(mi).bl*TPQ)}
+function locate(g){let mi=0,st=0;while(mi<score.measures.length){const l=mTicks(mi);if(g<st+l)return {mi,lt:g-st};st+=l;mi++}return {mi,lt:g-st}}
+const noteG=(mi,n)=>gAt(mi,n.b+n.s/score.measures[mi].divs[n.b]);
+// where the selection starts and how long its smallest piece is
+function selPoint(){
+  if(!sel)return null;
+  if(sel.type==='span')return {g:sel.g0,len:sel.g1-sel.g0};
+  if(sel.type==='note'){const f=findNote(sel.id);if(!f)return null;const m=score.measures[f.m];return {g:noteG(f.m,f.n),len:Math.round(tiAt(f.m).bl*TPQ/m.divs[f.n.b])}}
+  if(sel.type==='rest'){const m=score.measures[sel.m];if(!m)return null;const b=Math.min(m.divs.length-1,Math.floor(sel.t+1e-9));return {g:gAt(sel.m,sel.t),len:Math.round(tiAt(sel.m).bl*TPQ/m.divs[b])}}
+  if(sel.type==='measure'&&sel.pos)return {g:gAt(sel.m,posBeats(sel.pos)),len:Math.round(tiAt(sel.m).bl*TPQ/sel.pos.u)};
+  if(sel.type==='measure'||sel.type==='range'){const a=sel.type==='range'?sel.a:sel.m,b=sel.type==='range'?sel.b:sel.m;return {g:mStart(a),len:mStart(b+1)-mStart(a)}}
+  return null;
+}
+function setSpan(g0,g1,A,Alen,F){
+  const T=totalTicks();g0=Math.max(0,g0);g1=Math.min(T,g1);if(g1<=g0)return;
+  select({type:'span',m:locate(g0).mi,g0,g1,A,Alen,F},true);
+}
+// Shift+←/→: grow or shrink the range one written note or rest at a time (like MuseScore)
+function spanBounds(){const set=new Set([totalTicks()]);for(const x of orderedElements())set.add(gAt(x.mi,x.t));score.measures.forEach((_,mi)=>set.add(mStart(mi)));return [...set].sort((a,c)=>a-c)}
+function extendSpan(d){
+  const p=selPoint();if(!p)return;const B=spanBounds();
+  let A,AE,g0,g1;
+  if(sel.type==='span'){A=sel.A;AE=sel.A+sel.Alen;g0=sel.g0;g1=sel.g1}else{A=p.g;AE=p.g+p.len;g0=A;g1=AE}
+  const next=v=>B.find(x=>x>v),prev=v=>{let r=null;for(const x of B){if(x<v)r=x;else break}return r};
+  if(d>0){if(g0<A){const n=next(g0);if(n!=null)g0=Math.min(n,A)}else{const n=next(g1);if(n!=null)g1=n}}
+  else{if(g1>AE){const q=prev(g1);if(q!=null)g1=Math.max(q,AE)}else{const q=prev(g0);if(q!=null)g0=q}}
+  setSpan(g0,g1,A,AE-A,d>0?g1:g0);
+}
+function spanTo(g,len){
+  const p=selPoint();if(!p)return;
+  const A=sel.type==='span'?sel.A:p.g,Alen=sel.type==='span'?sel.Alen:p.len;
+  setSpan(Math.min(A,g),Math.max(A+Alen,g+len),A,Alen,g);
+}
+function spanNotes(g0,g1){const out=[];score.measures.forEach((m,mi)=>{const ms=mStart(mi),me=ms+mTicks(mi);if(me<=g0||ms>=g1)return;m.notes.forEach(n=>{const g=noteG(mi,n);if(g>=g0&&g<g1)out.push({mi,n,g})})});return out}
+const lenLabel=t=>{const q=t/TPQ;if(Math.abs(q-Math.round(q))<1e-9)return `${Math.round(q)}박`;const s16=t/12;if(Math.abs(s16-Math.round(s16))<1e-9)return `16분음표 ${Math.round(s16)}칸`;return `${Math.round(q*100)/100}박`};
+const MARKS=['a','g','tr','ar','na','h','cl','oc'];
+function copySpan(g0,g1){
+  const notes=spanNotes(g0,g1).map(({n,g})=>{const o={o:g-g0,i:n.i};for(const f of MARKS)if(n[f]!=null)o[f]=n[f];return o});
+  clipMeasure=JSON.stringify({span:true,len:g1-g0,notes});copyPending=clipMeasure;
+  setTimeout(()=>{if(copyPending){copyPending=null;try{navigator.clipboard.writeText(CLIP_LABEL+' span').catch(()=>{})}catch(err){}}},60);
+  toast(`${lenLabel(g1-g0)} 구간을 복사했어요 (음표 ${notes.length}개) · 붙일 자리를 누르고 Ctrl+V`);
+}
+function clearSpan(g0,g1){
+  commit(()=>{const hit=spanNotes(g0,g1);if(!hit.length)return false;const ids=new Set(hit.map(x=>x.n.id));score.measures.forEach(m=>{m.notes=m.notes.filter(n=>!ids.has(n.id))})});
+}
+function pasteSpan(clip){
+  const p=selPoint();if(!p){toast('붙여넣을 자리를 먼저 누르세요');return}
+  const G0=p.g,len=clip.len;
+  commit(()=>{
+    while(totalTicks()<G0+len)score.measures.push(newMeasure(tiAt(score.measures.length-1)));
+    const ids=new Set(spanNotes(G0,G0+len).map(x=>x.n.id));score.measures.forEach(m=>{m.notes=m.notes.filter(n=>!ids.has(n.id))});
+    for(const c of clip.notes){
+      if(!INST[c.i])continue;
+      const {mi,lt}=locate(G0+c.o);const m=score.measures[mi];if(!m)continue;const ti=tiAt(mi),bt=Math.round(ti.bl*TPQ);
+      const b=Math.min(ti.beats-1,Math.floor(lt/bt)),rem=lt-b*bt,g=gcd(rem,bt)||bt;
+      m.simile=false;const s0=slotFor(m,b,rem/g,bt/g,ti);
+      if(m.notes.some(n=>n.b===b&&n.s===s0&&n.i===c.i))continue;
+      const n={id:nid(),b,s:s0,i:c.i};for(const f of MARKS)if(c[f]!=null)n[f]=c[f];m.notes.push(n);
+    }
+    sel={type:'span',m:locate(G0).mi,g0:G0,g1:G0+len,A:G0,Alen:len,F:G0};
+  });
+  toast(`${lenLabel(len)} 구간을 붙여넣었어요`);
+}
 function validateSel(){
+  if(sel&&sel.type==='span'){const T=totalTicks();sel.g1=Math.min(sel.g1,T);if(sel.g1<=sel.g0){sel=null;return}sel.m=locate(sel.g0).mi;return}
   if(sel&&sel.type==='rest'){if(!score.measures[sel.m])sel=null;return}
   if(sel&&sel.type==='el'){const o=elOwner(sel.key);if(!o)sel=null;else sel.m=o.m;return}
   if(!sel)return;const N=score.measures.length;
@@ -1596,7 +1671,9 @@ function toggleNoteAt(mi,b,k,u,inst){
     }
   });
 }
+function hear(inst){try{if(INST[inst])playDrum(inst,0,0.85)}catch(e){}}
 function stampAt(mi,b,k,u,inst){
+  hear(inst);
   commit(()=>{
     const m=score.measures[mi];m.simile=false;
     const s0=slotFor(m,b,k,u,tiAt(mi));
@@ -1610,6 +1687,7 @@ function stampAt(mi,b,k,u,inst){
   });
 }
 function stampOnRest(inst,advance){
+  hear(inst);
   const mi=sel.m,p=posFromBeats(mi,sel.t),b=p.b;let nn=null;
   const ok=commit(()=>{
     const m=score.measures[mi];if(!m)return false;m.simile=false;
@@ -1654,6 +1732,7 @@ function applyDur(m,ti,b,s,durQ){
 }
 // note input (MuseScore style): put the instrument at the cursor with the chosen length, then move on
 function enterAtCursor(inst){
+  hear(inst);
   inputCursor(true);
   if(!sel||sel.type!=='measure'||!sel.pos){toast('먼저 악보에서 시작할 위치를 누르세요');return}
   const durQ=curDurQ();
@@ -1671,6 +1750,7 @@ function enterAtCursor(inst){
   },{scroll:true});
 }
 function addToLastChord(inst){
+  hear(inst);
   const f=lastEntered&&findNote(lastEntered.id);
   if(!f){toast('겹칠 음표가 없어요. 먼저 단축키로 음표를 하나 찍으세요');return}
   const m=score.measures[f.m];
@@ -1721,6 +1801,7 @@ function sectionOn(mi,text){
 }
 // plain key on a selected note: swap it for the new instrument (same place, same length)
 function replaceNote(id,inst){
+  hear(inst);
   commit(()=>{
     const f=findNote(id);if(!f)return false;const m=score.measures[f.m];
     // same key on a ghost note turns it back into a normal note (the ghost circle hides which drum it is)
@@ -1734,6 +1815,7 @@ function replaceNote(id,inst){
 }
 // Shift + key on a selected note: add the instrument on top of what is already there
 function addToChord(id,inst){
+  hear(inst);
   commit(()=>{
     const f=findNote(id);if(!f)return false;const m=score.measures[f.m];
     if(m.notes.some(n=>n.b===f.n.b&&n.s===f.n.s&&n.i===inst))return false;
@@ -2041,6 +2123,11 @@ pagesEl.addEventListener('pointerdown',e=>{
     window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
     return;
   }
+  // Shift+click on a note or rest after picking a note, rest or range: select the beats in between
+  if(!inputMode&&e.shiftKey&&sel&&(sel.type==='note'||sel.type==='rest'||sel.type==='span'||(sel.type==='measure'&&sel.pos))){const pi0=+svg.dataset.p,p0=svgPoint(svg,e),h0=headAt(pi0,p0);
+    if(h0){const f=findNote(h0.id);if(f){e.preventDefault();const m=score.measures[f.m];spanTo(noteG(f.m,f.n),Math.round(tiAt(f.m).bl*TPQ/m.divs[f.n.b]));return}}
+    let rb=null;for(const q of L.rests){if(q.p!==pi0)continue;const d=Math.hypot(p0.x-q.x,(p0.y-q.y)*0.8);if(d<1.4&&(!rb||d<rb.d))rb={...q,d}}
+    if(rb){e.preventDefault();const m=score.measures[rb.m],b=Math.min(m.divs.length-1,Math.floor(rb.t+1e-9));spanTo(gAt(rb.m,rb.t),Math.round(tiAt(rb.m).bl*TPQ/m.divs[b]));return}}
   // a click right on a notehead always picks the note, even when a mark (accent, o, slash…) sits close by
   if(!inputMode&&!e.shiftKey){const pi0=+svg.dataset.p,p0=svgPoint(svg,e),h0=headAt(pi0,p0);
     if(h0&&h0.d<0.95){e.preventDefault();select({type:'note',m:h0.m,id:h0.id});startSideDrag(e,pi0,p0,'note',h0.m,h0.id);return}}
@@ -2246,7 +2333,7 @@ document.addEventListener('keydown',e=>{
   // Ctrl+number with a measure selected: that many measures on this line (Ctrl+3 stays the triplet key for notes / input mode)
   if(ctrl&&!e.shiftKey&&digit>=1&&digit<=9&&!inputMode&&sel&&(sel.type==='measure'||sel.type==='range')){e.preventDefault();setLineN(sel.m,digit);return}
   if(ctrl&&digit===3){e.preventDefault();inputTrip=!inputTrip;renderChrome();return}
-  if(ctrl&&letter==='c'){if(sel&&sel.type!=='note'){copyMeasures()}return}
+  if(ctrl&&letter==='c'){if(sel&&(sel.type==='span'||sel.type==='note')){const q=selPoint();if(q)copySpan(q.g,q.g+q.len)}else if(sel){copyMeasures()}return}
   if(ctrl&&(k==='ArrowLeft'||k==='ArrowRight')&&sel&&(sel.type==='note'||sel.type==='rest')){e.preventDefault();const d=(k==='ArrowRight'?1:-1)*(e.shiftKey?1:0.25);
     if(sel.type==='note'){const f=findNote(sel.id);if(f)setDx('note',f.m,sel.id,curDx('note',f.m,sel.id)+d)}else setDx('rest',sel.m,sel.t,curDx('rest',sel.m,sel.t)+d);return}
   if(ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type!=='el'&&sel.m!=null){e.preventDefault();const sys=L.systems.find(s=>s.ms.includes(sel.m));if(sys)setLineN(sel.m,k==='ArrowUp'?sys.ms.length+1:Math.max(1,sys.ms.length-1));return}
@@ -2255,7 +2342,9 @@ document.addEventListener('keydown',e=>{
   if(code==='Space'&&!e.shiftKey){e.preventDefault();if(!e.repeat)togglePlay();return}
   if(k==='+'||code==='NumpadAdd'){e.preventDefault();openAddBox();return}
   // Shift+Delete: remove the selected measure(s) themselves; the measures around close up
-  if(e.shiftKey&&(k==='Delete'||k==='Backspace')&&sel&&sel.type!=='el'){e.preventDefault();const ms=selMeasures();deleteMeasures(ms);toast(ms.length>1?`마디 ${ms[0]+1}–${ms[ms.length-1]+1}을 지웠어요`:`마디 ${ms[0]+1}을 지웠어요`);return}
+  if(e.shiftKey&&(k==='ArrowLeft'||k==='ArrowRight')&&sel&&(sel.type==='note'||sel.type==='rest'||sel.type==='span'||(sel.type==='measure'&&sel.pos))){e.preventDefault();extendSpan(k==='ArrowRight'?1:-1);return}
+  if(sel&&sel.type==='span'&&(k==='Delete'||k==='Backspace')){e.preventDefault();const n=spanNotes(sel.g0,sel.g1).length;clearSpan(sel.g0,sel.g1);toast(n?`구간의 음표 ${n}개를 지웠어요`:'구간에 지울 음표가 없어요');return}
+  if(e.shiftKey&&(k==='Delete'||k==='Backspace')&&sel&&sel.type!=='el'&&sel.type!=='span'){e.preventDefault();const ms=selMeasures();deleteMeasures(ms);toast(ms.length>1?`마디 ${ms[0]+1}–${ms[ms.length-1]+1}을 지웠어요`:`마디 ${ms[0]+1}을 지웠어요`);return}
   const sn=getSelNote();
   if(e.shiftKey&&(code==='Period'||k==='>')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'accent')}return}
   if(e.shiftKey&&(code==='Digit9'||code==='Digit0'||k==='('||k===')')){const an=artNote();if(an){e.preventDefault();toggleArt(an.n.id,'ghost')}else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
@@ -2284,7 +2373,8 @@ document.addEventListener('keydown',e=>{
   if(!e.shiftKey&&(code==='Period'||code==='NumpadDecimal'||k==='.')){e.preventDefault();toggleDot();return}
   if(!e.shiftKey&&digit>=1&&digit<=7){e.preventDefault();setDuration(DURS.find(d=>d.k===digit).q);return}
   if(letter==='n'&&!e.shiftKey){e.preventDefault();toCursor();return}
-  if(k==='Escape'){if(sel&&sel.type==='measure'&&sel.pos){select({type:'measure',m:sel.m});return}if(sel)select(null);return}
+  // Esc steps out one level: a note, rest, mark or cursor → its whole measure → nothing
+  if(k==='Escape'){if(sel&&sel.m!=null&&(sel.pos||sel.type==='note'||sel.type==='rest'||sel.type==='el'||sel.type==='span')){const mi=sel.type==='note'?(findNote(sel.id)||{m:sel.m}).m:sel.m;select({type:'measure',m:mi});toast(`마디 ${mi+1} 전체를 골랐어요 · Backspace로 비우기`);return}if(sel)select(null);return}
   if(letter==='r'&&e.shiftKey&&!inputMode&&sel&&(sel.type==='range'||(sel.type==='measure'&&!sel.pos))){e.preventDefault();insertMeasure(sel.m+1,sel.m);return}
   if(letter==='l'&&!e.shiftKey){e.preventDefault();startLyrics();return}
   if(letter==='v'&&e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'accent');else toast('악센트를 붙일 음표를 먼저 누르세요');return}
@@ -2317,7 +2407,10 @@ document.addEventListener('keydown',e=>{
       if(!prev){toast('지울 음표가 없어요');return}
       commit(()=>{const m=score.measures[prev.mi];m.notes.splice(m.notes.indexOf(prev.n),1);sel={type:'measure',m:prev.mi,pos:posFromBeats(prev.mi,prev.n.b+prev.n.s/m.divs[prev.n.b])}});return}
     if(sel&&sel.type==='note'&&!sn){e.preventDefault();return}
-    if(sn){e.preventDefault();deleteNote(sn.n.id)}else if(sel){e.preventDefault();clearMeasures(selMeasures())}return}
+    if(sn){e.preventDefault();const mi=sn.m;deleteNote(sn.n.id);
+      // in a busy measure one missing note is easy to miss: say what happened and how to empty the whole measure
+      if(score.measures[mi]&&score.measures[mi].notes.length)toast('음표 1개를 지웠어요 · 마디 전체를 비우려면 Esc 다음 Backspace')}
+    else if(sel){e.preventDefault();const ms=selMeasures();clearMeasures(ms);toast(ms.length>1?`마디 ${ms[0]+1}–${ms[ms.length-1]+1}을 비웠어요`:`마디 ${ms[0]+1}을 비웠어요`)}return}
   if(k==='ArrowUp'||k==='ArrowDown'){if(sn){e.preventDefault();const i=UP_ORDER.indexOf(sn.n.i),j=i+(k==='ArrowUp'?1:-1);if(j>=0&&j<UP_ORDER.length)setInst(sn.n.id,UP_ORDER[j])}return}
   if(k==='ArrowLeft'||k==='ArrowRight'){
     const d=k==='ArrowRight'?1:-1;
@@ -3021,8 +3114,8 @@ function copyMeasures(){
 }
 document.addEventListener('copy',e=>{
   if(!copyPending||!e.clipboardData)return;
-  const n=JSON.parse(copyPending).length;
-  try{e.clipboardData.setData('text/plain',CLIP_LABEL+' x'+n);e.clipboardData.setData(CLIP_MIME,copyPending);e.preventDefault();copyPending=null}catch(err){}
+  const cp=JSON.parse(copyPending),n=cp.span?'span':'x'+cp.length;
+  try{e.clipboardData.setData('text/plain',CLIP_LABEL+' '+n);e.clipboardData.setData(CLIP_MIME,copyPending);e.preventDefault();copyPending=null}catch(err){}
 });
 function pasteMeasures(json){
   let arr;try{arr=JSON.parse(json)}catch(err){return}
@@ -3044,13 +3137,14 @@ document.addEventListener('paste',e=>{
     if(view!=='score'){toast('악보 화면에서 붙여넣을 마디를 누른 뒤 Ctrl+V 하세요');return}
     if(!sel){toast('붙여넣을 마디를 먼저 누르세요');return}
     const json=custom||clipMeasure;if(!json){toast('복사한 마디를 찾지 못했어요. 이 창에서 다시 복사해 주세요');return}
-    pasteMeasures(json);return}
+    pasteClip(json);return}
   const files=[...(cd&&cd.files||[])];
   if(files.some(f=>f.type.startsWith('image/'))){e.preventDefault();enqueue(files);return}
   if(inField)return;
   if(/"measures"\s*:/.test(txt)){e.preventDefault();applyManual(txt);return}
-  if(view==='score'&&clipMeasure&&sel){e.preventDefault();pasteMeasures(clipMeasure)}
+  if(view==='score'&&clipMeasure&&sel){e.preventDefault();pasteClip(clipMeasure)}
 });
+function pasteClip(json){let c;try{c=JSON.parse(json)}catch(err){return}if(c&&c.span)pasteSpan(c);else pasteMeasures(json)}
 let dragDepth=0;
 document.addEventListener('dragenter',e=>{if([...e.dataTransfer.types].includes('Files')){dragDepth++;$('#dropVeil').hidden=false}});
 document.addEventListener('dragleave',()=>{dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('#dropVeil').hidden=true});
