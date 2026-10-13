@@ -594,6 +594,7 @@ function normMeasure(m,ti){
       if(n.g==='flam'||n.g==='drag')o.g=n.g;
       if(n.tr)o.tr=1;
       if(n.ar)o.ar=1;
+      if(n.rd)o.rd=1;
       if(n.na)o.na=1;
       if(n.h==='R'||n.h==='L')o.h=n.h;
       if(n.cl&&o.i==='hh')o.cl=1;
@@ -614,6 +615,7 @@ function normMeasure(m,ti){
   const tp=validTempo(m.tempo);if(tp)o.tempo=tp;
   if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw));const cs=Math.round(+m.cs*100)/100;if(Number.isFinite(cs)&&cs)o.cs=Math.max(-10,Math.min(60,cs))}
   if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
+  {const ga=Math.round(+m.gapA*10)/10;if(Number.isFinite(ga)&&ga&&ga>=-6&&ga<=40)o.gapA=ga}
   {const v=typeof m.volta==='string'?{t:m.volta,n:+m.voltaLen||1}:m.volta;
    if(v&&typeof v==='object'&&str(v.t).trim()){o.volta={t:str(v.t).trim().slice(0,8),n:Math.max(1,Math.min(32,Math.round(+v.n)||1))}}}
   for(const k of ['segno','coda','ds','pageBreak','lineBreak','hidden','shuffle']) if(m[k]) o[k]=true;
@@ -914,25 +916,32 @@ function computeLayout(){
     const lo=score.voices===2?0:-2.2;sys.lo=lo;
     sys.lyrY=LYR_Y+lo;
     sys.below=(sys.hasLyr?7.6:6.4)+lo+(sys.stkBelow||0);
+    sys.gapA=score.measures[ms[0]].gapA||0;
     systems.push(sys);i=j;
   }
   const pages=[{systems:[]}];
   let y=MARGIN+headerH(),prevBrk=false;
   for(const sys of systems){
-    const h=sys.above+4+sys.below,pg=pages[pages.length-1];
+    const h=sys.above+4+sys.below+Math.max(0,sys.gapA),pg=pages[pages.length-1];
     if((prevBrk||y+h>PAGE_H-MARGIN)&&pg.systems.length){pages.push({systems:[]});y=MARGIN}
-    sys.top=y+sys.above;sys.page=pages.length-1;y+=h;prevBrk=sys.brk;
-    pages[pages.length-1].systems.push(sys);
+    // the user's extra space above this line (never pulls the first line of a page up, never lets staves touch)
+    const cur=pages[pages.length-1],prev=cur.systems[cur.systems.length-1];
+    sys.gEff=prev?sys.gapA:Math.max(0,sys.gapA);
+    sys.top=y+sys.above+sys.gEff;
+    if(prev&&sys.top<prev.top+8){sys.gEff+=prev.top+8-sys.top;sys.top=prev.top+8}
+    sys.page=pages.length-1;y=sys.top+4+sys.below;prevBrk=sys.brk;
+    cur.systems.push(sys);
   }
   pages.forEach((pg,pi)=>{
     const S=pg.systems;if(S.length<2)return;
     const start=S[0].top-S[0].above,bottom=PAGE_H-MARGIN,lastB=S[S.length-1].top+4+S[S.length-1].below;
     const slack=bottom-lastB;if(slack<=0.5)return;
-    if(pi===pages.length-1&&(lastB-start)/(bottom-start)<0.6)return; // a short last page stays packed
-    const need=S.slice(1).map((s2,i)=>s2.top-S[i].top),sumNeed=need.reduce((a,c)=>a+c,0);
+    const gs=S.reduce((a,c)=>a+Math.max(0,c.gEff||0),0);
+    if(pi===pages.length-1&&(lastB-start-gs)/(bottom-start)<0.6)return; // a short last page stays packed (the user's extra line gaps don't count)
+    const need=S.slice(1).map((s2,i)=>s2.top-S[i].top-(s2.gEff||0)),sumNeed=need.reduce((a,c)=>a+c,0);
     let lo=Math.min(...need),hi=Math.max(lo,30);
     for(let it=0;it<40;it++){const g=(lo+hi)/2,tot=need.reduce((a,c)=>a+Math.max(c,g),0);if(tot-sumNeed>slack)hi=g;else lo=g}
-    let t=S[0].top;for(let i=1;i<S.length;i++){t+=Math.max(need[i-1],lo);S[i].top=t}
+    let t=S[0].top;for(let i=1;i<S.length;i++){t+=Math.max(need[i-1],lo)+(S[i].gEff||0);S[i].top=t}
   });
   const mL=[];
   for(const sys of systems){
@@ -1362,6 +1371,14 @@ function drawChord(it,up,top,mi,selId,exp){
     const x0=it.x+HEAD_W/2+(open?0.8:-0.4),y=open?(up?ay-0.56:ay+0.56):(up?ay-0.45:ay+0.45),x1=x0+1.4;
     o+=elG('ar:'+arn.id,offOf(arn,'ar'),line(x0,y,x1,y,0.12)+`<path class="ln" d="M${r(x1-0.6)} ${r(y-0.38)}L${r(x1)} ${r(y)}L${r(x1-0.6)} ${r(y+0.38)}" fill="none" stroke-width="0.12"/>`,[x0-0.1,y-0.6,1.7,1.2]);
   }
+  // "Ride →": switch to the ride from here — text above everything else on this chord, never inside the staff
+  const rdn=it.notes.find(n=>n.rd);
+  if(rdn){
+    const sTop=L.mL[mi].top,above=(up?(acc?ay+0.15:Math.min(it.tip,it.yTop)):it.yTop-0.5)-(open||cln?1.3:0)-(it.notes.some(n=>n.oc&&n.i==='hho')?1.3:0)-(arn?1.0:0);
+    const fs=1.75,y=Math.min(above-0.45,sTop-1.2),x0=it.x-0.1,tw=textW('Ride',fs,700,SEC_FONT),ax0=x0+tw+0.35,ax1=ax0+1.7;
+    o+=elG('rd:'+rdn.id,offOf(rdn,'rd'),`<text class="tx" x="${r(x0)}" y="${r(y)}" style="font-size:${fs}px;font-weight:700;font-family:${SEC_FONT}">Ride</text>`+line(ax0,y-0.55,ax1,y-0.55,0.13)+`<path class="ln" d="M${r(ax1-0.55)} ${r(y-0.92)}L${r(ax1)} ${r(y-0.55)}L${r(ax1-0.55)} ${r(y-0.18)}" fill="none" stroke-width="0.13"/>`,[x0-0.15,y-1.55,ax1-x0+0.35,1.9]);
+    if(L.mTop){const tp=y-1.45;if(L.mTop[mi]==null||tp<L.mTop[mi])L.mTop[mi]=tp;if(L.tops)L.tops.push({mi,x0:it.x-0.3,t:tp})}
+  }
   return o;
 }
 function drawBeam(g,up){
@@ -1491,12 +1508,12 @@ function inputCursor(force){
 }
 function elOwner(key){
   const [t,id]=key.split(':');
-  if(['acc','open','ar','tr','g','stk','cl','oc'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
+  if(['acc','open','ar','tr','g','stk','cl','oc','rd'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
   const mi=+id,m=score.measures[mi];if(!m)return null;
   const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
   return ok?{kind:'measure',t,m:mi,meas:m}:null;
 }
-const EL_NAME={oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
+const EL_NAME={rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
 function setOffset(key,off){
   commit(()=>{const o=elOwner(key);if(!o)return false;const tgt=o.kind==='note'?o.n:o.meas;
     tgt.off=tgt.off||{};if(off&&(Math.abs(off[0])>0.01||Math.abs(off[1])>0.01))tgt.off[o.t]=[r(off[0]),r(off[1])];else delete tgt.off[o.t];
@@ -1514,6 +1531,7 @@ function deleteEl(key){
       if(o.t==='acc')setChordAcc(o.m,o.n,false);
       if(o.t==='open')chord.forEach(n=>{if(n.i==='hho')n.i='hh'});
       if(o.t==='ar')chord.forEach(n=>delete n.ar);
+      if(o.t==='rd')chord.forEach(n=>delete n.rd);
       if(o.t==='tr')chord.forEach(n=>delete n.tr);
       if(o.t==='g')delete o.n.g;
       if(o.t==='stk')delete o.n.h;
@@ -1570,7 +1588,7 @@ function spanTo(g,len){
 }
 function spanNotes(g0,g1){const out=[];score.measures.forEach((m,mi)=>{const ms=mStart(mi),me=ms+mTicks(mi);if(me<=g0||ms>=g1)return;m.notes.forEach(n=>{const g=noteG(mi,n);if(g>=g0&&g<g1)out.push({mi,n,g})})});return out}
 const lenLabel=t=>{const q=t/TPQ;if(Math.abs(q-Math.round(q))<1e-9)return `${Math.round(q)}박`;const s16=t/12;if(Math.abs(s16-Math.round(s16))<1e-9)return `16분음표 ${Math.round(s16)}칸`;return `${Math.round(q*100)/100}박`};
-const MARKS=['a','g','tr','ar','na','h','cl','oc'];
+const MARKS=['a','g','tr','ar','rd','na','h','cl','oc'];
 function copySpan(g0,g1){
   const notes=spanNotes(g0,g1).map(({n,g})=>{const o={o:g-g0,i:n.i};for(const f of MARKS)if(n[f]!=null)o[f]=n[f];return o});
   clipMeasure=JSON.stringify({span:true,len:g1-g0,notes});copyPending=clipMeasure;
@@ -1632,7 +1650,7 @@ function dedupeNotes(){
     if(m.notes.length<2)continue;const by=new Map();let drop=null;
     for(const n of m.notes){const k=n.b+'|'+n.s+'|'+n.i,o=by.get(k);if(!o){by.set(k,n);continue}
       const [stay,go]=o.id===keep||n.id!==keep?[o,n]:[n,o];
-      for(const f of ['a','g','tr','ar','h','cl','oc','du','dx'])if(go[f]!=null&&stay[f]==null)stay[f]=go[f];
+      for(const f of ['a','g','tr','ar','rd','h','cl','oc','du','dx'])if(go[f]!=null&&stay[f]==null)stay[f]=go[f];
       by.set(k,stay);(drop||(drop=new Set())).add(go);if(sel&&sel.type==='note'&&sel.id===go.id)sel={...sel,id:stay.id}}
     if(drop)m.notes=m.notes.filter(n=>!drop.has(n));
   }
@@ -1809,7 +1827,7 @@ function replaceNote(id,inst){
     m.notes=m.notes.filter(n=>!(n!==f.n&&n.b===f.n.b&&n.s===f.n.s&&(n.i===inst||(INST[n.i].step===INST[inst].step&&INST[n.i].head!=='n'&&INST[inst].head!=='n'))));
     const nn={id:nid(),b:f.n.b,s:f.n.s,i:inst};if(f.n.du)nn.du=f.n.du;if(f.n.dx)nn.dx=f.n.dx;
     // the new drum keeps the marks (accent, flam/drag, slash, arrow); a cross-stick is never a ghost
-    if(f.n.a&&!(f.n.a==='ghost'&&inst==='xstick'))nn.a=f.n.a;for(const k of ['g','tr','ar','h'])if(f.n[k])nn[k]=f.n[k];
+    if(f.n.a&&!(f.n.a==='ghost'&&inst==='xstick'))nn.a=f.n.a;for(const k of ['g','tr','ar','rd','h'])if(f.n[k])nn[k]=f.n[k];
     m.notes.splice(m.notes.indexOf(f.n),1,nn);sel={type:'note',m:f.m,id:nn.id};
   });
 }
@@ -1852,7 +1870,7 @@ function deleteNote(id){
     sel=nb?{type:'note',m:nb.mi,id:nb.n.id}:{type:'measure',m:f.m}});
 }
 function clearMeasures(ms){commit(()=>{let ch=false;for(const mi of ms){const m=score.measures[mi];if(m.notes.length||m.simile||m.lyrics.length)ch=true;m.notes=[];m.lyrics=[];m.simile=false}return ch?undefined:false})}
-function cloneMeasure(m){const c=JSON.parse(JSON.stringify(m));c.notes.forEach(n=>n.id=nid());delete c.ts;delete c.pageBreak;delete c.lineBreak;return c}
+function cloneMeasure(m){const c=JSON.parse(JSON.stringify(m));c.notes.forEach(n=>n.id=nid());delete c.ts;delete c.pageBreak;delete c.lineBreak;delete c.gapA;return c}
 function insertMeasure(at,copyFrom){
   commit(()=>{const ti=tiAt(Math.max(0,at-1));const m=copyFrom!=null?cloneMeasure(score.measures[copyFrom]):newMeasure(ti);score.measures.splice(at,0,m);sel={type:'measure',m:at}},{scroll:true});
 }
@@ -1901,10 +1919,15 @@ const st5=(x1=0.5,x2=9.5,y0=2)=>{let o='';for(let k=0;k<5;k++)o+=`<line class="s
 const svgI=(inner,vb='0 0 10 8')=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
 const T=(x,y,ch,fs=4)=>`<text class="mu" x="${x}" y="${y}" style="font-size:${fs}px">${ch}</text>`;
 function tsIcon(t){const w=tsWidthOf(t),x=5-w/2;let o=st5(1,9);const d=(n,y)=>{let s=String(n),tw=0;for(const c of s)tw+=TS_ADV[+c];let cx=5-tw/2,out='';for(const c of s){out+=T(r(cx),y,String.fromCharCode(0xE080+(+c)));cx+=TS_ADV[+c]}return out};return svgI(o+d(t[0],3)+d(t[1],5))}
+const gapIcon=(below,wider)=>{const th='stroke-width=".32"',tn='stroke-width=".14"';
+  const top=below?th:tn,bot=below?tn:th,a=wider?'M5 3.1v2.2M4.2 3.9 5 3.1 5.8 3.9M4.2 4.5 5 5.3 5.8 4.5':'M5 2.9v2.6M4.2 2.9 5 3.7 5.8 2.9M4.2 5.5 5 4.7 5.8 5.5';
+  return svgI(`<g class="ln"><line x1="1.4" y1="1.6" x2="8.6" y2="1.6" ${top}/><line x1="1.4" y1="2.3" x2="8.6" y2="2.3" ${top}/><line x1="1.4" y1="6.1" x2="8.6" y2="6.1" ${bot}/><line x1="1.4" y1="6.8" x2="8.6" y2="6.8" ${bot}/><path d="${a}" fill="none" stroke-width=".3" stroke-linecap="round" stroke-linejoin="round"/></g>`)};
+const GAP_ITEMS=[{id:'gap:A+',label:'위 간격 넓히기 (Alt+↓)',icon:gapIcon(false,true)},{id:'gap:A-',label:'위 간격 좁히기 (Alt+↑)',icon:gapIcon(false,false)},
+  {id:'gap:B+',label:'아래 간격 넓히기 (Alt+Shift+↓)',icon:gapIcon(true,true)},{id:'gap:B-',label:'아래 간격 좁히기 (Alt+Shift+↑)',icon:gapIcon(true,false)},
+  {id:'gap:0',label:'줄 간격 처음대로',icon:svgI(`<g class="ln"><line x1="1.4" y1="1.6" x2="8.6" y2="1.6" stroke-width=".14"/><line x1="1.4" y1="2.3" x2="8.6" y2="2.3" stroke-width=".14"/><line x1="1.4" y1="6.1" x2="8.6" y2="6.1" stroke-width=".14"/><line x1="1.4" y1="6.8" x2="8.6" y2="6.8" stroke-width=".14"/><path d="M3.6 3.8h2.8M3.6 4.6h2.8" stroke-width=".3"/></g>`)}];
 const PALETTE=[
   {cat:'파트 표기',items:['Intro','A','B','C','Bridge','Interlude','Out'].map(t=>({id:'sec:'+t,label:t,icon:()=>{const fs=Math.min(2.4,7.6/Math.max(1,textW(t,1,700,SEC_FONT))),w=textW(t,fs,700,SEC_FONT)+1.6;return svgI(`<rect class="ln" x="${r(5-w/2)}" y="${r(4-fs*0.5-0.8)}" width="${r(w)}" height="${r(fs*0.72+1.6)}" stroke-width=".18"/><text class="tx" x="5" y="${r(4+fs*0.22)}" text-anchor="middle" style="font-size:${r(fs)}px;font-weight:700;font-family:${SEC_FONT}">${t}</text>`)}}))},
-  {cat:'더블 스트로크',items:[{id:'trem',label:'더블 스트로크',icon:svgI(st5()+T(3.4,5.5,G.headBlack)+`<line class="ln" x1="4.64" y1="5.3" x2="4.64" y2="1.6" stroke-width=".12"/>`+T(4.64,3.6,G.trem))}]},
-  {cat:'전타음 (플램·드래그)',items:[
+  {cat:'꾸밈음',items:[{id:'trem',label:'더블 스트로크',icon:svgI(st5()+T(3.4,5.5,G.headBlack)+`<line class="ln" x1="4.64" y1="5.3" x2="4.64" y2="1.6" stroke-width=".12"/>`+T(4.64,3.6,G.trem))},
     {id:'flam',label:'플램',icon:svgI(st5()+T(2.6,5.5,G.flam)+T(4.6,5.5,G.headBlack)+`<line class="ln" x1="5.84" y1="5.3" x2="5.84" y2="1.8" stroke-width=".12"/><path class="fl" d="M3 6Q4.1 7 5.2 6Q4.1 6.7 3 6Z"/>`)},
     {id:'drag',label:'드래그',icon:svgI(st5()+T(1.7,5.5,G.headBlack,2.6)+T(2.95,5.5,G.headBlack,2.6)+`<line class="ln" x1="2.5" y1="5.4" x2="2.5" y2="3.2" stroke-width=".09"/><line class="ln" x1="3.75" y1="5.4" x2="3.75" y2="3.2" stroke-width=".09"/><rect class="fl" x="2.45" y="3.2" width="1.35" height=".32"/><rect class="fl" x="2.45" y="3.75" width="1.35" height=".32"/>`+T(4.9,5.5,G.headBlack)+`<line class="ln" x1="6.14" y1="5.3" x2="6.14" y2="1.8" stroke-width=".12"/>`)}]},
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
@@ -1915,7 +1938,8 @@ const PALETTE=[
     {id:'hho',label:'오픈 하이햇',icon:hhIcon('o')},
     {id:'arrow',label:'화살표 →',icon:svgI(`<path class="ln" d="M1.5 4H8.3M6.6 2.9 8.4 4 6.6 5.1" stroke-width=".3"/>`)},
     {id:'hh',label:'클로즈 하이햇',icon:hhIcon('+')},
-    {id:'hhoc',label:'오픈-클로즈',icon:hhIcon('oc')}]},
+    {id:'hhoc',label:'오픈-클로즈',icon:hhIcon('oc')},
+    {id:'ride',label:'Ride →',icon:svgI(`<text class="tx" x="0.7" y="4.9" style="font-size:2.5px;font-weight:700;font-family:${SEC_FONT}">Ride</text><path class="ln" d="M6.7 4.1H9.2M8.4 3.4 9.3 4.1 8.4 4.8" fill="none" stroke-width=".22"/>`)}]},
   {cat:'손 순서',items:[['R','R'],['L','L'],['RLRL','RLRL'],['LRLR','LRLR'],['RRLL','RRLL'],['RLRRLRLL','패러디들'],['clear','지우기']].map(([p,lb])=>({id:'stk:'+p,label:lb,
     icon:svgI(p==='clear'?`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:3px;font-weight:700;font-family:${SEC_FONT}">R L</text><path class="ln" d="M2 6.6 8 1.6" stroke-width=".35"/>`:`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:${p.length>4?1.75:p.length>1?2.6:3.6}px;font-weight:700;font-family:${SEC_FONT};letter-spacing:.15px">${p.length>4?p.slice(0,4)+' '+p.slice(4):p}</text>`)}))},
   {cat:'반복 및 이동',items:[
@@ -1927,11 +1951,13 @@ const PALETTE=[
     {id:'coda',label:'코다',icon:svgI(T(3.4,5.6,G.coda,4))},
     {id:'ds',label:'달 세뇨',icon:svgI(`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:3px;font-weight:700;font-style:italic">D.S.</text>`)}]},
   {cat:'세로줄',items:[{id:'dbl',label:'2줄 마디선',icon:svgI(st5(1,9)+`<line class="ln" x1="5" y1="2" x2="5" y2="6" stroke-width=".16"/><line class="ln" x1="5.5" y1="2" x2="5.5" y2="6" stroke-width=".16"/>`)}]},
-  {cat:'레이아웃',items:[{id:'addm',label:'마디 추가 (Shift + +)',icon:svgI(st5(1,9)+`<path class="ln" d="M5 2.2v3.6M3.2 4h3.6" stroke-width=".6"/>`)},{id:'lnbrk',label:'줄 나누기 (Enter)',icon:svgI(`<path class="ln" d="M7.6 1.8v3.4H2.6" stroke-width=".3"/><path class="ln" d="M4 3.8 2.5 5.2 4 6.6" stroke-width=".3"/>`)},{id:'pgbrk',label:'페이지 나누기',icon:svgI(`<path class="ln" d="M3.2 1h3l1 1v4.8h-4z" stroke-width=".22"/><path class="ln" d="M4 3.2h2.4M4 4.2h2.4M4 5.2h1.6" stroke-width=".18"/><path class="ln" d="M1 7.4h8" stroke-width=".18" stroke-dasharray=".5 .35"/>`)}]},
+  {cat:'레이아웃',items:[{id:'addm',label:'마디 추가 (Shift + +)',icon:svgI(st5(1,9)+`<path class="ln" d="M5 2.2v3.6M3.2 4h3.6" stroke-width=".6"/>`)},{id:'lnbrk',label:'줄 나누기 (Enter)',icon:svgI(`<path class="ln" d="M7.6 1.8v3.4H2.6" stroke-width=".3"/><path class="ln" d="M4 3.8 2.5 5.2 4 6.6" stroke-width=".3"/>`)},{id:'pgbrk',label:'페이지 나누기',icon:svgI(`<path class="ln" d="M3.2 1h3l1 1v4.8h-4z" stroke-width=".22"/><path class="ln" d="M4 3.2h2.4M4 4.2h2.4M4 5.2h1.6" stroke-width=".18"/><path class="ln" d="M1 7.4h8" stroke-width=".18" stroke-dasharray=".5 .35"/>`)},...GAP_ITEMS]},
 ];
 const palOpen=new Set(PALETTE.map(p=>p.cat));
 // the palette can be rearranged by dragging (categories and the cells inside them); the order is kept in this browser
 let palOrder={cats:[],items:{}};try{const v=JSON.parse(lsGet('jds:palOrder')||'null');if(v&&Array.isArray(v.cats))palOrder={cats:v.cats,items:v.items||{}}}catch(e){}
+{const OLD=['더블 스트로크','전타음 (플램·드래그)'];if(palOrder.cats.some(c=>OLD.includes(c))){const k=palOrder.cats.findIndex(c=>OLD.includes(c));palOrder.cats=palOrder.cats.filter(c=>!OLD.includes(c));if(!palOrder.cats.includes('꾸밈음'))palOrder.cats.splice(k,0,'꾸밈음')}
+ const its=OLD.flatMap(c=>palOrder.items[c]||[]);OLD.forEach(c=>delete palOrder.items[c]);if(its.length&&!palOrder.items['꾸밈음'])palOrder.items['꾸밈음']=its}
 function orderedPalette(){
   const rank=(arr,k,i)=>{const j=arr?arr.indexOf(k):-1;return j<0?1000+i:j};
   return PALETTE.map((p,ci)=>({p,ci})).sort((a,b)=>rank(palOrder.cats,a.p.cat,a.ci)-rank(palOrder.cats,b.p.cat,b.ci))
@@ -2012,7 +2038,17 @@ function targetNotes(){
   const sn=getSelNote();if(sn)return [{m:sn.m,n:sn.n}];
   const out=[];for(const mi of selMeasures())for(const n of score.measures[mi].notes)out.push({m:mi,n});return out;
 }
+function lineGap(below,d){
+  const ms=selMeasures();if(!ms.length||!L||!L.systems){toast('간격을 바꿀 줄의 마디를 먼저 누르세요');return}
+  const si=L.systems.findIndex(s=>s.ms.includes(ms[0]));if(si<0)return;
+  const tgt=below?L.systems[si+1]:L.systems[si];
+  if(!tgt){toast('아래에 줄이 없어요');return}
+  if(d===0){commit(()=>{let ch=false;for(const s2 of [L.systems[si],L.systems[si+1]])if(s2){const m=score.measures[s2.ms[0]];if(m.gapA!=null){delete m.gapA;ch=true}}return ch?undefined:false});toast('이 줄의 위·아래 간격을 처음대로 돌렸어요');return}
+  let v=0;commit(()=>{const m=score.measures[tgt.ms[0]];v=Math.round(Math.max(-6,Math.min(40,(m.gapA||0)+d))*10)/10;if(v)m.gapA=v;else delete m.gapA});
+  toast(`${below?'아래':'위'} 줄과의 간격 ${v>0?'+':''}${v} (기본 0)`+(below&&tgt.page!==L.systems[si].page?' · 아래 줄이 다음 페이지에 있어요':''));
+}
 function applyPalette(id){
+  if(id.startsWith('gap:')){const k=id.slice(4);lineGap(k[0]==='B',k==='0'?0:(k[1]==='+'?1.5:-1.5));return}
   if(id==='shuffle'&&sel){const a=Math.min(...selMeasures());commit(()=>{const m=score.measures[a];if(m.shuffle)delete m.shuffle;else m.shuffle=true});toast(score.measures[a].shuffle?'셔플 표기를 넣었어요 · 재생도 셔플로 들려요':'셔플 표기를 뺐어요');return}
   if(id==='addm'){openAddBox();return}
   if(!sel){toast('먼저 악보에서 음표나 마디를 선택하세요');return}
@@ -2061,6 +2097,7 @@ function applyPalette(id){
   if(flag){const [k,mi]=flag;commit(()=>{const m=score.measures[mi];if(m[k])delete m[k];else m[k]=true;if(k==='repeatStart'||k==='repeatEnd')m[k]=!!m[k]});return}
   if(id==='dbl'){commit(()=>{const m=score.measures[b];delete m.autoDbl;if(m.barEnd==='double')delete m.barEnd;else m.barEnd='double'});return}
   if(id.startsWith('sec:')){const t=id.slice(4);commit(()=>{sectionOn(a,score.measures[a].section===t?'':t)});return}
+  if(id==='ride'){const sn=getSelNote();if(!sn){toast('Ride → 를 붙일 음표를 먼저 누르세요');return}commit(()=>{const ch=chordOf(sn.m,sn.n),on=ch.some(n=>n.rd);ch.forEach(n=>delete n.rd);if(!on)sn.n.rd=1});return}
   if(id==='arrow'){const sn=getSelNote();if(!sn){toast('화살표를 붙일 음표를 먼저 누르세요');return}commit(()=>{if(sn.n.ar)delete sn.n.ar;else sn.n.ar=1});return}
 }
 
@@ -2338,6 +2375,7 @@ document.addEventListener('keydown',e=>{
     if(sel.type==='note'){const f=findNote(sel.id);if(f)setDx('note',f.m,sel.id,curDx('note',f.m,sel.id)+d)}else setDx('rest',sel.m,sel.t,curDx('rest',sel.m,sel.t)+d);return}
   if(ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type!=='el'&&sel.m!=null){e.preventDefault();const sys=L.systems.find(s=>s.ms.includes(sel.m));if(sys)setLineN(sel.m,k==='ArrowUp'?sys.ms.length+1:Math.max(1,sys.ms.length-1));return}
   if(ctrl&&(k==='Delete'||k==='Backspace')){if(sel){e.preventDefault();deleteMeasures(selMeasures())}return}
+  if(e.altKey&&!ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel){e.preventDefault();lineGap(e.shiftKey,(k==='ArrowDown'?1:-1)*(e.shiftKey?1:1)*1.5*(e.shiftKey?1:1));return}
   if(ctrl||e.altKey)return;
   if(code==='Space'&&!e.shiftKey){e.preventDefault();if(!e.repeat)togglePlay();return}
   if(k==='+'||code==='NumpadAdd'){e.preventDefault();openAddBox();return}
@@ -3124,7 +3162,7 @@ function pasteMeasures(json){
   commit(()=>{arr.forEach((src,k)=>{const mi=start+k;
     if(mi>=score.measures.length)score.measures.push(newMeasure(tiAt(score.measures.length-1)));
     const c=normMeasure(JSON.parse(JSON.stringify(src)),tiAt(mi));c.notes.forEach(n=>n.id=nid());
-    const keep=score.measures[mi];if(keep.ts)c.ts=keep.ts;else delete c.ts;score.measures[mi]=c});
+    const keep=score.measures[mi];if(keep.ts)c.ts=keep.ts;else delete c.ts;if(keep.gapA)c.gapA=keep.gapA;else delete c.gapA;score.measures[mi]=c});
     sel={type:arr.length>1?'range':'measure',m:start,a:start,b:start+arr.length-1,anchor:start};if(arr.length===1)sel={type:'measure',m:start}});
   toast(arr.length>1?`마디 ${start+1}–${start+arr.length}에 붙여넣었어요`:`마디 ${start+1}에 붙여넣었어요`);
 }
