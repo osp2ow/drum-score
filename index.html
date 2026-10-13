@@ -1981,9 +1981,9 @@ const PALETTE=[
   {cat:'아티큘레이션',items:[
     {id:'accent',label:'악센트',icon:svgI(T(3.6,4.9,G.accA,5))},
     {id:'hho',label:'오픈 하이햇',icon:hhIcon('o')},
-    {id:'arrow',label:'화살표 →',icon:svgI(`<path class="ln" d="M1.5 4H8.3M6.6 2.9 8.4 4 6.6 5.1" stroke-width=".3"/>`)},
     {id:'hh',label:'클로즈 하이햇',icon:hhIcon('+')},
     {id:'hhoc',label:'오픈-클로즈',icon:hhIcon('oc')},
+    {id:'hhoar',label:'오픈 하이햇 →',icon:svgI(`<g class="ln" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="2.9" cy="4" r="1.35" stroke-width=".45"/><path d="M5.1 4H8.9M7.7 3 8.9 4 7.7 5" stroke-width=".4"/></g>`)},
     {id:'ride',label:'Ride →',icon:svgI(`<text class="tx" x="0.7" y="4.9" style="font-size:2.5px;font-weight:700;font-family:${SEC_FONT}">Ride</text><path class="ln" d="M6.7 4.1H9.2M8.4 3.4 9.3 4.1 8.4 4.8" fill="none" stroke-width=".22"/>`)}]},
   {cat:'손 순서',items:[['R','R'],['L','L'],['RLRL','RLRL'],['LRLR','LRLR'],['RRLL','RRLL'],['RLRRLRLL','패러디들'],['clear','지우기']].map(([p,lb])=>({id:'stk:'+p,label:lb,
     icon:svgI(p==='clear'?`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:3px;font-weight:700;font-family:${SEC_FONT}">R L</text><path class="ln" d="M2 6.6 8 1.6" stroke-width=".35"/>`:`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:${p.length>4?1.75:p.length>1?2.6:3.6}px;font-weight:700;font-family:${SEC_FONT};letter-spacing:.15px">${p.length>4?p.slice(0,4)+' '+p.slice(4):p}</text>`)}))},
@@ -2120,6 +2120,13 @@ function applyPalette(id){
     const ts=targetNotes();if(!ts.length){toast('악센트를 붙일 음표가 없어요');return}
     const all=ts.every(x=>accShown(chordOf(x.m,x.n)));
     commit(()=>{for(const x of ts)setChordAcc(x.m,x.n,!all)});return;
+  }
+  // open hi-hat with an arrow after it (o→): one press makes the hi-hat open and adds the arrow; again takes the arrow off
+  if(id==='hhoar'){
+    const sn=getSelNote();const ts=sn?[sn]:targetNotes().filter(x=>x.n.i==='hh'||x.n.i==='hho');
+    if(!ts.length){toast('하이햇 음표를 먼저 누르세요');return}
+    const all=ts.every(x=>x.n.i==='hho'&&chordOf(x.m,x.n).some(n=>n.ar));
+    commit(()=>{for(const x of ts){if(all){chordOf(x.m,x.n).forEach(n=>delete n.ar);continue}setInstOn(score.measures[x.m],x.n,'hho');x.n.ar=1}});return;
   }
   if(id==='hhoc'){
     const sn=getSelNote();const ts=sn?[sn]:targetNotes().filter(x=>x.n.i==='hh'||x.n.i==='hho');
