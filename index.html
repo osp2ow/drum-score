@@ -847,7 +847,7 @@ function natural(mi,vl1,vl2,ti){
     if(!ti.compound)m.divs.forEach((d,b)=>{if(d>=6&&b<beatW.length)beatW[b]=mx*1.45})}
   return {lead,trail,beatW,pre,tsLead,w:lead+trail+beatW.reduce((a,c)=>a+c,0)};
 }
-function headerH(){return 1.5+txs('title').sz*1.2+(score.subtitle?txs('sub').sz*1.35:0)+txs('cmp').sz*3.3+1.0}
+function headerH(){return 1.5+txs('title').sz*1.2+(score.subtitle?txs('sub').sz*1.95:0)+txs('cmp').sz*3.3+1.0}
 const hasMarks=m=>m.section||m.segno||m.coda||m.ds||m.tempo||m.shuffle;
 const rowMarks=(m,first)=>(m.section&&!first)||m.segno||m.coda||m.ds||m.tempo||m.shuffle;
 let layoutPer=4;
@@ -1042,7 +1042,7 @@ function renderHeader(exp){
     return out;
   };
   y+=1.5+txs('title').sz*1.05;o+=field('title',score.title,'곡 제목',PAGE_W/2,y,'middle','t-title');
-  if(score.subtitle){y+=txs('sub').sz*1.35;o+=field('subtitle',score.subtitle,'부제목',PAGE_W/2,y,'middle','t-sub')}
+  if(score.subtitle){y+=txs('sub').sz*1.95;o+=field('subtitle',score.subtitle,'부제목',PAGE_W/2,y,'middle','t-sub')}
   y+=txs('cmp').sz*(score.subtitle?2.4:3.3);
   o+=field('arranger',score.arranger,'작사 · made by',MARGIN,y,'','t-cmp');
   o+=field('composer',score.composer,'가수',PAGE_W-MARGIN,y,'end','t-cmp');
