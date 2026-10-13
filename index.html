@@ -616,6 +616,7 @@ function normMeasure(m,ti){
   if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw));const cs=Math.round(+m.cs*100)/100;if(Number.isFinite(cs)&&cs)o.cs=Math.max(-10,Math.min(60,cs))}
   if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
   {const ga=Math.round(+m.gapA*10)/10;if(Number.isFinite(ga)&&ga&&ga>=-6&&ga<=40)o.gapA=ga}
+  if(Array.isArray(m.texts)){const tx=m.texts.map(x=>{const t=str(x&&x.t).slice(0,80),xb=+x.x;if(!t||!Number.isFinite(xb))return null;const q={t,x:Math.max(0,Math.min(ti.beats-1e-6,xb))};const of=cleanOff(x.off);if(of)q.off=of;return q}).filter(Boolean);if(tx.length)o.texts=tx}
   {const v=typeof m.volta==='string'?{t:m.volta,n:+m.voltaLen||1}:m.volta;
    if(v&&typeof v==='object'&&str(v.t).trim()){o.volta={t:str(v.t).trim().slice(0,8),n:Math.max(1,Math.min(32,Math.round(+v.n)||1))}}}
   for(const k of ['segno','coda','ds','pageBreak','lineBreak','hidden','shuffle']) if(m[k]) o[k]=true;
@@ -912,6 +913,7 @@ function computeLayout(){
     sys.markShift=hs&&rm?2.6:0;
     sys.voltas=[];score.measures.forEach((mm,i)=>{if(mm.volta){const e=Math.min(score.measures.length-1,i+mm.volta.n-1);if(i<=ms[ms.length-1]&&e>=ms[0])sys.voltas.push({a:i,e})}});
     if(sys.voltas.length){sys.above+=2.6;sys.markShift+=2.6}
+    if(ms.some(k=>score.measures[k].texts))sys.above+=2.4;
     sys.secLift=secLiftFor(ms[0],sx,hw,widths[ms[0]],NAT[ms[0]]);if(sys.secLift){sys.above+=sys.secLift;sys.markShift+=sys.secLift}
     const lo=score.voices===2?0:-2.2;sys.lo=lo;
     sys.lyrY=LYR_Y+lo;
@@ -1063,6 +1065,13 @@ function renderSystem(sys,exp){
   sys._marks=[];sys._spanTop=null;
   for(const mi of sys.ms)o+=renderMeasure(mi,sys,exp);
   if(score.showNums&&sys.ms[0]>0&&!(exp&&headHid)){const sm=score.measures[sys.ms[0]];o+=`<text class="tx t-num" x="${r(sys.sx)}" y="${r(sm.section?top-2.4-(sys.secLift||0)-txs('sec').sz*1.42-0.5:top-1.2)}">${sys.ms[0]+1}</text>`}
+  // free text boxes: above the notes of their measure; drag to move, click again to edit
+  if(!exp||true){L.txtPos=L.txtPos||{};const st=txs('lyr');
+    for(const mi of sys.ms){const m=score.measures[mi];if(!m.texts)continue;const ml=L.mL[mi],ti=tiAt(mi);
+      m.texts.forEach((tx,k)=>{const key=`txt:${mi}_${k}`,b=Math.min(ti.beats-1,Math.floor(tx.x+1e-9)),x=mtx(ml,b,tx.x-b),mt=L.mTop&&L.mTop[mi]!=null?L.mTop[mi]:top,y=Math.min(top-1.6,mt-0.7),w=textW(tx.t,st.sz,st.w,fontCss()),off=tx.off&&tx.off.txt;
+        L.txtPos[key]={page:sys.page,x:x+(off?off[0]:0),y:y+(off?off[1]:0)};
+        o+=elG(key,off,`<text class="tx t-lyr t-free" x="${r(x)}" y="${r(y)}">${esc(tx.t)}</text>`,[x-0.3,y-st.sz*0.95,w+0.6,st.sz*1.3]);
+        if(L.mTop&&(L.mTop[mi]==null||y-st.sz<L.mTop[mi]))L.mTop[mi]=y-st.sz})}}
   for(const h of sys.hairs)o+=drawHairpin(h,sys,exp);
   for(const v of (sys.voltas||[]))o+=drawVolta(v,sys,exp);
   {let rowY=top-7.05-(sys.markShift||0);if(sys._spanTop!=null)rowY=Math.min(rowY,sys._spanTop-1.0);for(const f of sys._marks)o+=f(rowY);sys._marks=null}
@@ -1416,7 +1425,7 @@ ${PT_FACE}svg{--paper-ink:#111111;--sel:#111111}${SVG_RULES}${textCss()}`}
 const pagesEl=$('#pages'),canvasEl=$('#canvas');let txStyleEl=null;
 function render(scrollSel){
   if(txStyleEl)txStyleEl.textContent=textCss();
-  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];
+  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];L.txtPos={};
   if(zoomFit&&canvasEl.clientWidth)fitZoom();
   pagesEl.innerHTML=L.pages.map((_,i)=>renderPage(i,false)).join('');
   const w=BASE_W*PX_PER_SP*zoom;
@@ -1508,18 +1517,20 @@ function inputCursor(force){
 }
 function elOwner(key){
   const [t,id]=key.split(':');
+  if(t==='txt'){const [mi,k]=id.split('_').map(Number),m=score.measures[mi],tx=m&&m.texts&&m.texts[k];return tx?{kind:'measure',t,m:mi,k,meas:tx,mm:m}:null}
   if(['acc','open','ar','tr','g','stk','cl','oc','rd'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
   const mi=+id,m=score.measures[mi];if(!m)return null;
   const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
   return ok?{kind:'measure',t,m:mi,meas:m}:null;
 }
-const EL_NAME={rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
+const EL_NAME={txt:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
 function setOffset(key,off){
   commit(()=>{const o=elOwner(key);if(!o)return false;const tgt=o.kind==='note'?o.n:o.meas;
     tgt.off=tgt.off||{};if(off&&(Math.abs(off[0])>0.01||Math.abs(off[1])>0.01))tgt.off[o.t]=[r(off[0]),r(off[1])];else delete tgt.off[o.t];
     if(!Object.keys(tgt.off).length)delete tgt.off});
 }
 function deleteEl(key){
+  if(key.startsWith('txt:')){if(hdrKey===key)closeHdr(false);const o=elOwner(key);if(!o)return;commit(()=>{o.mm.texts.splice(o.k,1);if(!o.mm.texts.length)delete o.mm.texts;sel={type:'measure',m:o.m}});return}
   // close an in-place editor first so it can't write the old value back afterwards
   if(tempoMi!=null){tempoMi=null;tempoEl.hidden=true;tempoEl.blur();unhideEditing()}
   if(hdrKey&&hdrKey.startsWith('sec:'))closeHdr(false);
@@ -1965,6 +1976,7 @@ const PALETTE=[
     {id:'drag',label:'드래그',icon:svgI(st5()+T(1.7,5.5,G.headBlack,2.6)+T(2.95,5.5,G.headBlack,2.6)+`<line class="ln" x1="2.5" y1="5.4" x2="2.5" y2="3.2" stroke-width=".09"/><line class="ln" x1="3.75" y1="5.4" x2="3.75" y2="3.2" stroke-width=".09"/><rect class="fl" x="2.45" y="3.2" width="1.35" height=".32"/><rect class="fl" x="2.45" y="3.75" width="1.35" height=".32"/>`+T(4.9,5.5,G.headBlack)+`<line class="ln" x1="6.14" y1="5.3" x2="6.14" y2="1.8" stroke-width=".12"/>`)}]},
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
   {cat:'템포',items:[{id:'shuffle',label:'셔플',icon:svgI(shuffleMark(0.2,6.2).replace(/class="tx t-tempo"/,'class="tx" style="font-size:2.2px"'),'0 0 9.4 8')},...[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))]},
+  {cat:'텍스트',items:[{id:'text',label:'텍스트 상자 (T)',icon:svgI(`<rect class="ln" x="1.2" y="1.8" width="7.6" height="4.6" rx=".5" fill="none" stroke-width=".22" stroke-dasharray=".6 .4"/><text class="tx" x="5" y="5.1" text-anchor="middle" style="font-size:2.6px;font-weight:600">Abc</text>`)}]},
   {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)}]},
   {cat:'아티큘레이션',items:[
     {id:'accent',label:'악센트',icon:svgI(T(3.6,4.9,G.accA,5))},
@@ -2081,6 +2093,7 @@ function lineGap(below,d){
   toast(`${below?'아래':'위'} 줄과의 간격 ${v>0?'+':''}${v} (기본 0)`+(below&&tgt.page!==L.systems[si].page?' · 아래 줄이 다음 페이지에 있어요':''));
 }
 function applyPalette(id){
+  if(id==='text'){addText();return}
   if(id.startsWith('gap:')){const k=id.slice(4);lineGap(k[0]==='B',k==='0'?0:(k[1]==='+'?1.5:-1.5));return}
   if(id==='shuffle'&&sel){const a=Math.min(...selMeasures());commit(()=>{const m=score.measures[a];if(m.shuffle)delete m.shuffle;else m.shuffle=true});toast(score.measures[a].shuffle?'셔플 표기를 넣었어요 · 재생도 셔플로 들려요':'셔플 표기를 뺐어요');return}
   if(id==='addm'){openAddBox();return}
@@ -2216,7 +2229,7 @@ pagesEl.addEventListener('pointerdown',e=>{
     const upf=ev=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
       if(moved){const p=svgPoint(svg2,ev);setOffset(key,[base[0]+p.x-start.x,base[1]+p.y-start.y])}
       else if(o.t==='tempo'&&again)openTempo(o.m);
-      else if(o.t==='sec'&&again)openHdr(key);};
+      else if((o.t==='sec'||o.t==='txt')&&again)openHdr(key);};
     window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
     return;
   }
@@ -2351,12 +2364,23 @@ tempoEl.addEventListener('blur',()=>setTimeout(()=>{if(tempoMi!=null&&document.a
 /* ---------- header editor ---------- */
 const hdrEl=$('#hdrInput');let hdrKey=null;
 const HDR_LABEL={title:'곡 제목',subtitle:'부제목',arranger:'작사 · made by',composer:'가수'};
+let txtNew=null;
+function addText(){
+  const p=selPoint();if(!p){toast('글자를 넣을 음표나 마디를 먼저 누르세요');return}
+  const {mi,lt}=locate(p.g),ti=tiAt(mi);if(!score.measures[mi])return;
+  txtNew={mi,x:lt/(ti.bl*TPQ)};openHdr('txt:new');
+}
 function openHdr(key){
+  if(key.startsWith('txt:')){const o=key==='txt:new'?null:elOwner(key);if(key!=='txt:new'&&!o)return;if(key!=='txt:new')txtNew=null;
+    hdrKey=key;hdrEl.hidden=false;hdrEl.value=o?o.meas.t:'';hdrEl.placeholder='텍스트 입력';positionHdr();hdrEl.focus();hdrEl.select();return}
   const sm=key.startsWith('sec:')&&score.measures[+key.slice(4)];
   hdrKey=key;hdrEl.hidden=false;hdrEl.value=sm?sm.section:(score[key]||'');hdrEl.placeholder=sm?'파트 이름':HDR_LABEL[key];positionHdr();hdrEl.focus();hdrEl.select();
 }
 function positionHdr(){
   if(!hdrKey)return;
+  if(hdrKey.startsWith('txt:')){let pos=L.txtPos&&L.txtPos[hdrKey];
+    if(hdrKey==='txt:new'&&txtNew){const ml=L.mL[txtNew.mi];if(!ml)return;const ti=tiAt(txtNew.mi),b=Math.min(ti.beats-1,Math.floor(txtNew.x+1e-9)),mt=L.mTop&&L.mTop[txtNew.mi]!=null?L.mTop[txtNew.mi]:ml.top;pos={page:ml.page,x:mtx(ml,b,txtNew.x-b),y:Math.min(ml.top-1.6,mt-0.7)}}
+    if(!pos)return;placeInline(hdrEl,{page:pos.page,x:pos.x,y:pos.y,anchor:'start',tk:'lyr',hide:hdrKey==='txt:new'?null:`[data-el="${hdrKey}"] text`});return}
   if(hdrKey.startsWith('sec:')){const sp=L.secPos&&L.secPos[+hdrKey.slice(4)];if(!sp)return;
     placeInline(hdrEl,{page:sp.page,x:sp.x,y:sp.y,anchor:'start',tk:'sec',family:SEC_FONT,hide:`[data-el="${hdrKey}"] text`});return}
   const hp=L.hdrPos&&L.hdrPos[hdrKey];if(!hp)return;
@@ -2364,6 +2388,11 @@ function positionHdr(){
 }
 function closeHdr(save){
   if(!hdrKey)return;const key=hdrKey;hdrKey=null;hdrEl.hidden=true;unhideEditing();
+  if(key.startsWith('txt:')){const v=str(hdrEl.value).trim().slice(0,80);
+    if(key==='txt:new'){const tn=txtNew;txtNew=null;if(!save||!v||!tn||!score.measures[tn.mi])return;commit(()=>{const m=score.measures[tn.mi];m.texts=m.texts||[];m.texts.push({t:v,x:tn.x});sel={type:'el',key:`txt:${tn.mi}_${m.texts.length-1}`,m:tn.mi}});return}
+    if(!save)return;const o=elOwner(key);if(!o)return;
+    if(!v){deleteEl(key);return}
+    if(o.meas.t!==v)commit(()=>{o.meas.t=v});return}
   if(!save)return;const v=str(hdrEl.value);
   if(key.startsWith('sec:')){const mi=+key.slice(4);if(score.measures[mi]&&score.measures[mi].section!==v.slice(0,20))commit(()=>{sectionOn(mi,v.slice(0,20))});return}
   if((score[key]||'')!==v)commit(()=>{score[key]=v});
@@ -2448,6 +2477,7 @@ document.addEventListener('keydown',e=>{
   if(k==='Escape'){if(sel&&sel.m!=null&&(sel.pos||sel.type==='note'||sel.type==='rest'||sel.type==='el'||sel.type==='span')){const mi=sel.type==='note'?(findNote(sel.id)||{m:sel.m}).m:sel.m;select({type:'measure',m:mi});toast(`마디 ${mi+1} 전체를 골랐어요 · Backspace로 비우기`);return}if(sel)select(null);return}
   if(letter==='r'&&e.shiftKey&&!inputMode&&sel&&(sel.type==='range'||(sel.type==='measure'&&!sel.pos))){e.preventDefault();insertMeasure(sel.m+1,sel.m);return}
   if(letter==='l'&&!e.shiftKey){e.preventDefault();startLyrics();return}
+  if(letter==='t'&&!e.shiftKey){e.preventDefault();addText();return}
   if(letter==='v'&&e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'accent');else toast('악센트를 붙일 음표를 먼저 누르세요');return}
   if(letter==='z'&&!e.shiftKey){e.preventDefault();const an=artNote();if(an)toggleArt(an.n.id,'ghost');else toast('고스트로 바꿀 음표를 먼저 누르세요');return}
   // H hides only a whole selected measure (or range); in input mode or with a note, rest or cursor selected, H is the hi-hat key
