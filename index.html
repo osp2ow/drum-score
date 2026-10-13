@@ -1589,30 +1589,63 @@ function spanTo(g,len){
 function spanNotes(g0,g1){const out=[];score.measures.forEach((m,mi)=>{const ms=mStart(mi),me=ms+mTicks(mi);if(me<=g0||ms>=g1)return;m.notes.forEach(n=>{const g=noteG(mi,n);if(g>=g0&&g<g1)out.push({mi,n,g})})});return out}
 const lenLabel=t=>{const q=t/TPQ;if(Math.abs(q-Math.round(q))<1e-9)return `${Math.round(q)}박`;const s16=t/12;if(Math.abs(s16-Math.round(s16))<1e-9)return `16분음표 ${Math.round(s16)}칸`;return `${Math.round(q*100)/100}박`};
 const MARKS=['a','g','tr','ar','rd','na','h','cl','oc'];
-function copySpan(g0,g1){
-  const notes=spanNotes(g0,g1).map(({n,g})=>{const o={o:g-g0,i:n.i};for(const f of MARKS)if(n[f]!=null)o[f]=n[f];return o});
-  clipMeasure=JSON.stringify({span:true,len:g1-g0,notes});copyPending=clipMeasure;
-  setTimeout(()=>{if(copyPending){copyPending=null;try{navigator.clipboard.writeText(CLIP_LABEL+' span').catch(()=>{})}catch(err){}}},60);
-  toast(`${lenLabel(g1-g0)} 구간을 복사했어요 (음표 ${notes.length}개) · 붙일 자리를 누르고 Ctrl+V`);
+// a range copy keeps everything that shapes the notation, not just which drums are hit: every note field (length, nudge,
+// marks, sticking), each beat's grid, where rests split, nudged rests, and the words under the notes
+function spanData(g0,g1){
+  const notes=spanNotes(g0,g1).map(({n,g})=>{const o={o:g-g0};for(const [k,v] of Object.entries(n))if(k!=='id'&&k!=='b'&&k!=='s')o[k]=JSON.parse(JSON.stringify(v));return o});
+  const beats=[],rb=[],rdx=[],lyrics=[];
+  score.measures.forEach((m,mi)=>{
+    const ms=mStart(mi),me=ms+mTicks(mi);if(me<=g0||ms>=g1)return;const ti=tiAt(mi),bt=Math.round(ti.bl*TPQ);
+    for(let b=0;b<ti.beats;b++){const bg=ms+b*bt;if(bg+bt<=g0||bg>=g1)continue;beats.push({o:bg-g0,len:bt,div:m.divs[b],full:bg>=g0&&bg+bt<=g1})}
+    for(const x of (m.rb||[])){const g=gAt(mi,x);if(g>g0&&g<g1)rb.push(g-g0)}
+    if(m.rdx)for(const [k,v] of Object.entries(m.rdx)){const g=gAt(mi,+k);if(g>=g0&&g<g1)rdx.push({o:g-g0,v})}
+    for(const l of m.lyrics){const g=gAt(mi,l.b+l.s/l.d);if(g>=g0&&g<g1)lyrics.push({o:g-g0,t:l.t,...(l.dx?{dx:l.dx}:{})})}
+  });
+  return {span:true,v:2,len:g1-g0,notes,beats,rb,rdx,lyrics};
 }
+function copySpan(g0,g1){
+  const d=spanData(g0,g1);
+  clipMeasure=JSON.stringify(d);copyPending=clipMeasure;
+  setTimeout(()=>{if(copyPending){copyPending=null;try{navigator.clipboard.writeText(CLIP_LABEL+' span').catch(()=>{})}catch(err){}}},60);
+  toast(`${lenLabel(g1-g0)} 구간을 복사했어요 (음표 ${d.notes.length}개) · 붙일 자리를 누르고 Ctrl+V`);
+}
+// tick → measure, beat and the exact fraction inside the beat
+function tickPos(g){const {mi,lt}=locate(g);const ti=tiAt(mi),bt=Math.round(ti.bl*TPQ),b=Math.min(ti.beats-1,Math.floor(lt/bt)),rem=lt-b*bt,k=gcd(rem,bt)||bt;return {mi,ti,bt,b,rem,x:b+rem/bt,num:rem/k,den:bt/k}}
 function clearSpan(g0,g1){
   commit(()=>{const hit=spanNotes(g0,g1);if(!hit.length)return false;const ids=new Set(hit.map(x=>x.n.id));score.measures.forEach(m=>{m.notes=m.notes.filter(n=>!ids.has(n.id))})});
 }
 function pasteSpan(clip){
   const p=selPoint();if(!p){toast('붙여넣을 자리를 먼저 누르세요');return}
-  const G0=p.g,len=clip.len;
+  const G0=p.g,len=clip.len,G1=G0+len;
   commit(()=>{
-    while(totalTicks()<G0+len)score.measures.push(newMeasure(tiAt(score.measures.length-1)));
-    const ids=new Set(spanNotes(G0,G0+len).map(x=>x.n.id));score.measures.forEach(m=>{m.notes=m.notes.filter(n=>!ids.has(n.id))});
+    while(totalTicks()<G1)score.measures.push(newMeasure(tiAt(score.measures.length-1)));
+    // empty the target range: notes, words, rest splits and rest nudges
+    const ids=new Set(spanNotes(G0,G1).map(x=>x.n.id));
+    score.measures.forEach((m,mi)=>{
+      const ms=mStart(mi),me=ms+mTicks(mi);if(me<=G0||ms>=G1)return;
+      m.notes=m.notes.filter(n=>!ids.has(n.id));m.simile=false;
+      m.lyrics=m.lyrics.filter(l=>{const g=gAt(mi,l.b+l.s/l.d);return g<G0||g>=G1});
+      if(m.rb){m.rb=m.rb.filter(x=>{const g=gAt(mi,x);return g<=G0||g>=G1});if(!m.rb.length)delete m.rb}
+      if(m.rdx){for(const k of Object.keys(m.rdx)){const g=gAt(mi,+k);if(g>=G0&&g<G1)delete m.rdx[k]}if(!Object.keys(m.rdx).length)delete m.rdx}
+    });
+    // the beat grids: a whole copied beat lands on a whole beat → same grid; a partly copied beat refines the grid if it can
+    for(const e of (clip.beats||[])){
+      const T=G0+e.o;if(T<0)continue;const q=tickPos(T);if(q.rem!==0||q.bt!==e.len)continue;
+      const m=score.measures[q.mi];if(!m||!q.ti.divs.includes(e.div))continue;
+      if(e.full)m.divs[q.b]=e.div;
+      else{const c=lcm(m.divs[q.b],e.div);if(q.ti.divs.includes(c))convertBeat(m,q.b,c)}
+    }
     for(const c of clip.notes){
       if(!INST[c.i])continue;
-      const {mi,lt}=locate(G0+c.o);const m=score.measures[mi];if(!m)continue;const ti=tiAt(mi),bt=Math.round(ti.bl*TPQ);
-      const b=Math.min(ti.beats-1,Math.floor(lt/bt)),rem=lt-b*bt,g=gcd(rem,bt)||bt;
-      m.simile=false;const s0=slotFor(m,b,rem/g,bt/g,ti);
-      if(m.notes.some(n=>n.b===b&&n.s===s0&&n.i===c.i))continue;
-      const n={id:nid(),b,s:s0,i:c.i};for(const f of MARKS)if(c[f]!=null)n[f]=c[f];m.notes.push(n);
+      const q=tickPos(G0+c.o),m=score.measures[q.mi];if(!m)continue;
+      const s0=slotFor(m,q.b,q.num,q.den,q.ti);
+      if(m.notes.some(n=>n.b===q.b&&n.s===s0&&n.i===c.i))continue;
+      const n={...JSON.parse(JSON.stringify(c)),id:nid(),b:q.b,s:s0};delete n.o;m.notes.push(n);
     }
-    sel={type:'span',m:locate(G0).mi,g0:G0,g1:G0+len,A:G0,Alen:len,F:G0};
+    for(const o of (clip.rb||[])){const q=tickPos(G0+o),m=score.measures[q.mi];if(!m||q.x<=1e-9)continue;const x=Math.round(q.x*1e6)/1e6;m.rb=[...new Set([...(m.rb||[]),x])].sort((a,c)=>a-c)}
+    for(const r0 of (clip.rdx||[])){const q=tickPos(G0+r0.o),m=score.measures[q.mi];if(!m)continue;m.rdx=m.rdx||{};m.rdx[tKey(q.x)]=r0.v}
+    for(const l of (clip.lyrics||[])){const q=tickPos(G0+l.o),m=score.measures[q.mi];if(!m)continue;m.lyrics.push({b:q.b,s:q.num,d:q.den,t:l.t,...(l.dx?{dx:l.dx}:{})})}
+    sel={type:'span',m:locate(G0).mi,g0:G0,g1:G1,A:G0,Alen:len,F:G0};
   });
   toast(`${lenLabel(len)} 구간을 붙여넣었어요`);
 }
