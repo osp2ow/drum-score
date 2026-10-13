@@ -613,6 +613,7 @@ function normMeasure(m,ti){
   if(Array.isArray(m.rb)){const rb=[...new Set(m.rb.map(Number).filter(x=>x>0&&x<ti.beats).map(x=>Math.round(x*1e6)/1e6))].sort((a,c)=>a-c);if(rb.length)o.rb=rb}
   const wfv=Math.round(+m.wf*100)/100;if(Number.isFinite(wfv)&&wfv>=0.4&&wfv<=3&&wfv!==1)o.wf=wfv;
   const tp=validTempo(m.tempo);if(tp)o.tempo=tp;
+  if(Number.isInteger(+m.vib)&&+m.vib>0){o.vib=Math.min(64,+m.vib);const vw=Math.round(+m.vw*100)/100;if(Number.isFinite(vw)&&vw)o.vw=Math.max(-60,Math.min(20,vw));const vs=Math.round(+m.vs*100)/100;if(Number.isFinite(vs)&&vs)o.vs=Math.max(-10,Math.min(60,vs))}
   if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw));const cs=Math.round(+m.cs*100)/100;if(Number.isFinite(cs)&&cs)o.cs=Math.max(-10,Math.min(60,cs))}
   if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
   {const ga=Math.round(+m.gapA*10)/10;if(Number.isFinite(ga)&&ga&&ga>=-6&&ga<=40)o.gapA=ga}
@@ -879,7 +880,7 @@ function computeLayout(){
   const NAT=score.measures.map((m,i)=>natural(i,VL[i][0],VL[i][1],TIS[i]));
   const CLEF_W=3.3, TS_W=tsWidthOf(score.ts)+1.4;
   // crescendo ranges
-  const hairs=[];score.measures.forEach((m,i)=>{if(m.cresc)hairs.push({a:i,e:Math.min(N-1,i+m.cresc-1)})});
+  const hairs=[];score.measures.forEach((m,i)=>{if(m.cresc)hairs.push({a:i,e:Math.min(N-1,i+m.cresc-1),k:'cresc'});if(m.vib)hairs.push({a:i,e:Math.min(N-1,i+m.vib-1),k:'vib'})});
   // automatic: pick one measures-per-line count for the whole score so all measures stay equal
   const pack=()=>{
   const availAll=CONTENT_W-CLEF_W-TS_W;
@@ -908,8 +909,10 @@ function computeLayout(){
     sys.stkBelow=hasStk&&ms.some(k=>score.measures[k].lyrics.length)?2.4:0;
     sys.hairs=hairs.filter(h=>h.a<=ms[ms.length-1]&&h.e>=ms[0]);
     const rm=ms.some((k,ix)=>rowMarks(score.measures[k],ix===0)),hs=sys.hairs.length>0;
+    // a crescendo and a vibrato line over the same measures stack: give the second one its own row
+    const hs2=sys.hairs.some((h,i)=>sys.hairs.some((g,j)=>j!==i&&g.k!==h.k&&g.a<=h.e&&h.a<=g.e));
     // tempo / D.S. row sits above a crescendo, never on it
-    sys.above=6.2+(rm?2.6:0)+(hs?(rm?2.6:1.4):0)+(ms.some(k=>score.measures[k].shuffle)?1.3:0);
+    sys.above=6.2+(rm?2.6:0)+(hs?(rm?2.6:1.4):0)+(hs2?2.2:0)+(ms.some(k=>score.measures[k].shuffle)?1.3:0);
     sys.markShift=hs&&rm?2.6:0;
     sys.voltas=[];score.measures.forEach((mm,i)=>{if(mm.volta){const e=Math.min(score.measures.length-1,i+mm.volta.n-1);if(i<=ms[ms.length-1]&&e>=ms[0])sys.voltas.push({a:i,e})}});
     if(sys.voltas.length){sys.above+=2.6;sys.markShift+=2.6}
@@ -1078,34 +1081,35 @@ function renderSystem(sys,exp){
   return o;
 }
 // drag the end of a crescendo: it can grow or shrink inside its line and spill into the next measures
-function crescDrag(e,svg,a){
-  const m=score.measures[a];if(!m||!m.cresc)return;
-  const orig={cresc:m.cresc,cw:m.cw},of=offOf(m,'cresc')||[0,0];
-  const e0=Math.min(score.measures.length-1,a+m.cresc-1),sys=L.systems.find(s=>s.ms.includes(e0));if(!sys)return;
+const SPK={cresc:{n:'cresc',w:'cw',s:'cs'},vib:{n:'vib',w:'vw',s:'vs'}};
+function crescDrag(e,svg,a,kind='cresc'){const K=SPK[kind];
+  const m=score.measures[a];if(!m||!m[K.n])return;
+  const orig={n:m[K.n],w:m[K.w]},of=offOf(m,kind)||[0,0];
+  const e0=Math.min(score.measures.length-1,a+m[K.n]-1),sys=L.systems.find(s=>s.ms.includes(e0));if(!sys)return;
   let raf=0,last=null;
   const pi=svg.dataset.p;
   const calc=ev=>{const sv=pagesEl.querySelector(`svg.page[data-p="${pi}"]`)||svg,px=svgPoint(sv,ev).x-of[0];const cand=sys.ms.filter(k=>k>=a);if(!cand.length)return null;
     let k=cand.find(k=>L.mL[k].x+L.mL[k].w>=px);if(k==null)k=cand[cand.length-1];
-    const de=L.mL[k].x+L.mL[k].w-1.0;return {cresc:k-a+1,cw:Math.round(Math.max(-(L.mL[k].w-1.5),Math.min(3,px-de))*10)/10}};
-  const mv=ev=>{last=calc(ev);if(!last)return;m.cresc=last.cresc;if(last.cw)m.cw=last.cw;else delete m.cw;if(!raf)raf=requestAnimationFrame(()=>{raf=0;render()})};
+    const de=L.mL[k].x+L.mL[k].w-1.0;return {n:k-a+1,w:Math.round(Math.max(-(L.mL[k].w-1.5),Math.min(3,px-de))*10)/10}};
+  const mv=ev=>{last=calc(ev);if(!last)return;m[K.n]=last.n;if(last.w)m[K.w]=last.w;else delete m[K.w];if(!raf)raf=requestAnimationFrame(()=>{raf=0;render()})};
   const upf=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
-    m.cresc=orig.cresc;if(orig.cw)m.cw=orig.cw;else delete m.cw;
-    if(last)commit(()=>{const mm=score.measures[a];mm.cresc=last.cresc;if(last.cw)mm.cw=last.cw;else delete mm.cw});else render()};
+    m[K.n]=orig.n;if(orig.w)m[K.w]=orig.w;else delete m[K.w];
+    if(last)commit(()=>{const mm=score.measures[a];mm[K.n]=last.n;if(last.w)mm[K.w]=last.w;else delete mm[K.w]});else render()};
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
 }
 // drag the start of a crescendo to shorten (or lengthen) it from the left
-function crescStartDrag(e,svg,a){
-  const m=score.measures[a];if(!m||!m.cresc)return;
-  const orig=m.cs,of=offOf(m,'cresc')||[0,0],pi=svg.dataset.p,base=L.mL[a].beatX[0]+0.2;
-  const e0=Math.min(score.measures.length-1,a+m.cresc-1),sys=L.systems.find(s=>s.ms.includes(a));if(!sys)return;
-  const endX=sys.ms.includes(e0)?Math.max(base+1.5,L.mL[e0].x+L.mL[e0].w-1.0+(m.cw||0)):sys.end-0.3;
+function crescStartDrag(e,svg,a,kind='cresc'){const K=SPK[kind];
+  const m=score.measures[a];if(!m||!m[K.n])return;
+  const orig=m[K.s],of=offOf(m,kind)||[0,0],pi=svg.dataset.p,base=L.mL[a].beatX[0]+0.2;
+  const e0=Math.min(score.measures.length-1,a+m[K.n]-1),sys=L.systems.find(s=>s.ms.includes(a));if(!sys)return;
+  const endX=sys.ms.includes(e0)?Math.max(base+1.5,L.mL[e0].x+L.mL[e0].w-1.0+(m[K.w]||0)):sys.end-0.3;
   let raf=0,last=null;
   const mv=ev=>{const sv=pagesEl.querySelector(`svg.page[data-p="${pi}"]`)||svg,px=svgPoint(sv,ev).x-of[0];
-    last=Math.round(Math.max(-10,Math.min(endX-1.5-base,px-base))*10)/10;if(last)m.cs=last;else delete m.cs;
+    last=Math.round(Math.max(-10,Math.min(endX-1.5-base,px-base))*10)/10;if(last)m[K.s]=last;else delete m[K.s];
     if(!raf)raf=requestAnimationFrame(()=>{raf=0;render()})};
   const upf=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
-    if(orig)m.cs=orig;else delete m.cs;
-    if(last!=null)commit(()=>{const mm=score.measures[a];if(last)mm.cs=last;else delete mm.cs});else render()};
+    if(orig)m[K.s]=orig;else delete m[K.s];
+    if(last!=null)commit(()=>{const mm=score.measures[a];if(last)mm[K.s]=last;else delete mm[K.s]});else render()};
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
 }
 // 1st / 2nd ending bracket: a line over the measures with a hook down at the start (and at the end for "1.")
@@ -1133,14 +1137,17 @@ function drawVolta(v,sys,exp){
   if(closed)body+=line(x2,y,x2,y+hk,0.14);
   return elG('volta:'+v.a,offOf(m,'volta'),body,[x1,y-0.5,x2-x1,hk+0.8]);
 }
+// a long wavy line from x1 to x2 (vibrato)
+function wavy(x1,x2,y){const per=1.0,amp=0.36;let d=`M${r(x1)} ${r(y)}`,x=x1,up=true;while(x<x2-1e-6){const nx=Math.min(x2,x+per/2),cx=(x+nx)/2;d+=`Q${r(cx)} ${r(y+(up?-amp:amp)*2*(nx-x)/(per/2))} ${r(nx)} ${r(y)}`;x=nx;up=!up}return `<path class="ln" d="${d}" fill="none" stroke-width="0.17" stroke-linejoin="round"/>`}
 function drawHairpin(h,sys,exp){
   if(exp&&score.measures[h.a].hidden)return '';
+  const kind=h.k||'cresc',K=SPK[kind];
   const m=score.measures[h.a];let body='',hb=null;
   // full span across systems; opening grows with cumulative length
   const segs=[];
   for(const s of L.systems){
     const a=Math.max(h.a,s.ms[0]),e=Math.min(h.e,s.ms[s.ms.length-1]);if(a>e)continue;
-    const x1=a===h.a?L.mL[a].beatX[0]+0.2+(m.cs||0):L.mL[a].x+0.4, x2=e===h.e?Math.max(x1+1.5,L.mL[e].x+L.mL[e].w-1.0+(m.cw||0)):s.end-0.3;
+    const x1=a===h.a?L.mL[a].beatX[0]+0.2+(m[K.s]||0):L.mL[a].x+0.4, x2=e===h.e?Math.max(x1+1.5,L.mL[e].x+L.mL[e].w-1.0+(m[K.w]||0)):s.end-0.3;
     segs.push({s,x1,x2,last:e===h.e,first:a===h.a});
   }
   const total=segs.reduce((t,g)=>t+(g.x2-g.x1),0)||1;let acc=0,o='';
@@ -1148,11 +1155,12 @@ function drawHairpin(h,sys,exp){
     const o1=0.62*acc/total;acc+=g.x2-g.x1;const o2=0.62*acc/total;
     if(g.s===sys){let mt=sys.top;for(const k of sys.ms)if(k>=h.a&&k<=h.e&&L.mTop&&L.mTop[k]!=null)mt=Math.min(mt,L.mTop[k]);const y=Math.min(sys.top-4.6,mt-1.5);
       sys._spanTop=Math.min(sys._spanTop??Infinity,y-0.7);
-      if(L.mTop)for(const k of sys.ms)if(k>=h.a&&k<=h.e)L.mTop[k]=Math.min(L.mTop[k]??sys.top,y-0.7);body+=line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
-      if(!exp&&sel&&sel.type==='el'&&sel.key==='cresc:'+h.a){const of=offOf(m,'cresc')||[0,0],hdl=(x,side)=>`<g class="hhandle" data-hh="${h.a}" data-side="${side}"><rect x="${r(x+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(x+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`;
+      if(L.mTop)for(const k of sys.ms)if(k>=h.a&&k<=h.e)L.mTop[k]=Math.min(L.mTop[k]??sys.top,y-0.7);
+      body+=kind==='vib'?wavy(g.x1,g.x2,y):line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
+      if(!exp&&sel&&sel.type==='el'&&sel.key===kind+':'+h.a){const of=offOf(m,kind)||[0,0],hdl=(x,side)=>`<g class="hhandle" data-hh="${h.a}" data-hk="${kind}" data-side="${side}"><rect x="${r(x+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(x+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`;
         if(g.first)o+=hdl(g.x1,'l');if(g.last)o+=hdl(g.x2,'r')}}
   }
-  return body?elG('cresc:'+h.a,offOf(m,'cresc'),body,hb)+o:'';
+  return body?elG(kind+':'+h.a,offOf(m,kind),body,hb)+o:'';
 }
 function renderMeasure(mi,sys,exp){
   const m=score.measures[mi];
@@ -1520,10 +1528,10 @@ function elOwner(key){
   if(t==='txt'){const [mi,k]=id.split('_').map(Number),m=score.measures[mi],tx=m&&m.texts&&m.texts[k];return tx?{kind:'measure',t,m:mi,k,meas:tx,mm:m}:null}
   if(['acc','open','ar','tr','g','stk','cl','oc','rd'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
   const mi=+id,m=score.measures[mi];if(!m)return null;
-  const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
+  const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,vib:m.vib,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
   return ok?{kind:'measure',t,m:mi,meas:m}:null;
 }
-const EL_NAME={txt:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
+const EL_NAME={vib:'비브라토',txt:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
 function setOffset(key,off){
   commit(()=>{const o=elOwner(key);if(!o)return false;const tgt=o.kind==='note'?o.n:o.meas;
     tgt.off=tgt.off||{};if(off&&(Math.abs(off[0])>0.01||Math.abs(off[1])>0.01))tgt.off[o.t]=[r(off[0]),r(off[1])];else delete tgt.off[o.t];
@@ -1552,7 +1560,7 @@ function deleteEl(key){
       sel={type:'note',m:o.m,id:o.n.id};
     }else{
       const m=o.meas,mi=o.m;
-      const fx={shuf:()=>delete m.shuffle,volta:()=>delete m.volta,cresc:()=>{delete m.cresc;delete m.cw;delete m.cs},sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
+      const fx={shuf:()=>delete m.shuffle,volta:()=>delete m.volta,cresc:()=>{delete m.cresc;delete m.cw;delete m.cs},vib:()=>{delete m.vib;delete m.vw;delete m.vs},sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
       if(o.t==='ts'){const prev=tsAt(mi-1);setTimeout(()=>setTsFrom(mi,prev),0)}
       if(m.off)delete m.off[o.t];
       sel={type:'measure',m:mi};
@@ -1977,7 +1985,7 @@ const PALETTE=[
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
   {cat:'템포',items:[{id:'shuffle',label:'셔플',icon:svgI(shuffleMark(0.2,6.2).replace(/class="tx t-tempo"/,'class="tx" style="font-size:2.2px"'),'0 0 9.4 8')},...[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))]},
   {cat:'텍스트',items:[{id:'text',label:'텍스트 상자 (T)',icon:svgI(`<rect class="ln" x="1.2" y="1.8" width="7.6" height="4.6" rx=".5" fill="none" stroke-width=".22" stroke-dasharray=".6 .4"/><text class="tx" x="5" y="5.1" text-anchor="middle" style="font-size:2.6px;font-weight:600">Abc</text>`)}]},
-  {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)}]},
+  {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)},{id:'vib',label:'비브라토',icon:svgI(wavy(1,9,4).replace('stroke-width="0.17"','stroke-width="0.3"'))}]},
   {cat:'아티큘레이션',items:[
     {id:'accent',label:'악센트',icon:svgI(T(3.6,4.9,G.accA,5))},
     {id:'hho',label:'오픈 하이햇',icon:hhIcon('o')},
@@ -2146,6 +2154,7 @@ function applyPalette(id){
   if(id.startsWith('ts:')){setTsFrom(a,id.slice(3).split('/').map(Number));return}
   if(id.startsWith('tempo:')){const v=+id.slice(6);commit(()=>{const m=score.measures[a];if(m.tempo===v)delete m.tempo;else m.tempo=v});if(score.measures[a].tempo)setTimeout(()=>openTempo(a),30);return}
   if(id==='cresc'){const span=b-a+1;commit(()=>{const m=score.measures[a];if(m.cresc===span)delete m.cresc;else m.cresc=span});return}
+  if(id==='vib'){const span=b-a+1;commit(()=>{const m=score.measures[a];if(m.vib===span){delete m.vib;delete m.vw;delete m.vs}else m.vib=span});if(score.measures[a].vib)select({type:'el',key:'vib:'+a,m:a});return}
   const flag={rs:['repeatStart',a],re:['repeatEnd',b],segno:['segno',a],coda:['coda',a],ds:['ds',b],pgbrk:['pageBreak',b],lnbrk:['lineBreak',b]}[id];
   if(flag){const [k,mi]=flag;commit(()=>{const m=score.measures[mi];if(m[k])delete m[k];else m[k]=true;if(k==='repeatStart'||k==='repeatEnd')m[k]=!!m[k]});return}
   if(id==='dbl'){commit(()=>{const m=score.measures[b];delete m.autoDbl;if(m.barEnd==='double')delete m.barEnd;else m.barEnd='double'});return}
@@ -2222,7 +2231,7 @@ pagesEl.addEventListener('pointerdown',e=>{
   if(!inputMode&&!e.shiftKey){const pi0=+svg.dataset.p,p0=svgPoint(svg,e),h0=headAt(pi0,p0);
     if(h0&&h0.d<0.95){e.preventDefault();select({type:'note',m:h0.m,id:h0.id});startSideDrag(e,pi0,p0,'note',h0.m,h0.id);return}}
   const hh=!inputMode&&e.target.closest('[data-hh]');
-  if(hh){e.preventDefault();if(hh.dataset.side==='l')crescStartDrag(e,svg,+hh.dataset.hh);else crescDrag(e,svg,+hh.dataset.hh);return}
+  if(hh){e.preventDefault();const kd=hh.dataset.hk||'cresc';if(hh.dataset.side==='l')crescStartDrag(e,svg,+hh.dataset.hh,kd);else crescDrag(e,svg,+hh.dataset.hh,kd);return}
   const elx=!inputMode&&e.target.closest('[data-el]');
   if(elx){
     e.preventDefault();const key=elx.dataset.el,o=elOwner(key);if(!o)return;
@@ -2464,11 +2473,11 @@ document.addEventListener('keydown',e=>{
     commit(()=>{const m=score.measures[a];if(!m.volta)return false;const n=Math.max(1,Math.min(score.measures.length-a,m.volta.n+d));if(n===m.volta.n)return false;m.volta.n=n});
     const m=score.measures[a];if(m.volta)toast(`괄호 길이 ${m.volta.n}마디`);return;
   }
-  if((code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'||k==='{'||k==='}')&&sel&&sel.type==='el'&&sel.key.startsWith('cresc:')){
-    e.preventDefault();const a=+sel.key.slice(6),right=(code==='BracketRight'||k===']'||k==='}');
+  if((code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'||k==='{'||k==='}')&&sel&&sel.type==='el'&&(sel.key.startsWith('cresc:')||sel.key.startsWith('vib:'))){
+    e.preventDefault();const [kd,ai]=sel.key.split(':'),K=SPK[kd],a=+ai,right=(code==='BracketRight'||k===']'||k==='}');
     // [ ] move the end, Shift+[ ] move the start
-    if(e.shiftKey)commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-10,Math.min(60,(m.cs||0)+(right?0.5:-0.5)))*10)/10;if(v)m.cs=v;else delete m.cs});
-    else commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-60,Math.min(20,(m.cw||0)+(right?0.5:-0.5)))*10)/10;if(v)m.cw=v;else delete m.cw});return;
+    if(e.shiftKey)commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-10,Math.min(60,(m[K.s]||0)+(right?0.5:-0.5)))*10)/10;if(v)m[K.s]=v;else delete m[K.s]});
+    else commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-60,Math.min(20,(m[K.w]||0)+(right?0.5:-0.5)))*10)/10;if(v)m[K.w]=v;else delete m[K.w]});return;
   }
   if(code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'){
     if(!sel){toast('넓히거나 줄일 마디를 먼저 누르세요');return}
