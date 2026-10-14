@@ -3588,7 +3588,7 @@ async function dirReady(ask){
 async function writeToDir(name,blob){const fh=await expDir.getFileHandle(name.replace(/[\\/:*?"<>|]/g,'_'),{create:true});const w=await fh.createWritable();await w.write(blob);await w.close()}
 function renderPubDir(){
   const el=$('#pubDir');if(!el)return;
-  if(inClaudeApp()){el.innerHTML='<span>Claude 앱 안에서는 저장 위치를 직접 고를 수 없어서 다운로드 폴더로 저장돼요. 여러 쪽짜리 PNG는 <b>ZIP 파일 하나</b>로 묶어서 한 번만 확인하면 돼요.</span>';return}
+  if(inClaudeApp()){el.innerHTML='<span>Claude 앱 안에서는 저장 위치를 직접 고를 수 없어서 다운로드 폴더로 저장돼요. 여러 쪽짜리 PNG는 <b>한 장씩 저장 확인 창이 이어서</b> 떠요.</span>';return}
   if(!canPickDir()){el.innerHTML='<span>이 브라우저는 저장 폴더를 고를 수 없어서 다운로드 폴더로 저장돼요. 폴더를 고르려면 Chrome이나 Edge에서 열어 주세요.</span>';return}
   el.innerHTML=`<span>저장 위치: <b>${expDir?esc(expDir.name)+' 폴더':'브라우저 다운로드 폴더'}</b></span><button id="pickDir">${expDir?'폴더 바꾸기':'저장 폴더 고르기'}</button>${expDir?'<button id="clearDir">다운로드 폴더로</button>':''}<span style="flex-basis:100%">폴더를 고르면 PNG 여러 장도 물어보지 않고 그 폴더에 한꺼번에 저장돼요.</span>`;
 }
@@ -3610,8 +3610,8 @@ async function saveFile(filename,data){
       setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);return true}
     catch(e){toast('이 화면에서는 파일을 저장할 수 없어요');return false}
   }
-  try{await dl.save({filename,data});return true}
-  catch(e){if(e&&e.code==='declined')return false;toast(e&&e.code==='rate_limited'?'저장 창이 이미 열려 있어요':'파일을 저장하지 못했어요');return false}
+  try{for(let k=0;k<6;k++){try{await dl.save({filename,data});return true}catch(e){if(e&&e.code==='rate_limited'&&k<5){await new Promise(r=>setTimeout(r,400));continue}throw e}}
+  }catch(e){if(e&&e.code==='declined')return false;toast(e&&e.code==='rate_limited'?'저장 창이 이미 열려 있어요':'파일을 저장하지 못했어요');return false}
 }
 async function pagePng(pi){
   const svg=renderPage(pi,true);
@@ -3633,9 +3633,9 @@ async function doExport(kind){
     computeLayout();const n=L.pages.length;
     if(kind==='png'){
       const name=i=>n>1?`${base} ${i+1}쪽.png`:`${base}.png`;
-      if(n>1&&inClaudeApp()){const files=[];for(let i=0;i<n;i++)files.push({name:name(i),data:new Uint8Array(await (await pagePng(i)).arrayBuffer())});
-        if(await saveFile(`${base} PNG ${n}장.zip`,makeZip(files)))toast(`PNG ${n}장을 ZIP 하나로 저장했어요`);return}
-      for(let i=0;i<n;i++){const b=await pagePng(i);if(!await saveFile(name(i),b))return}
+      // one file per page, one after another (in the Claude app each one opens its own save prompt as soon as the last is done)
+      const pngs=[];for(let i=0;i<n;i++)pngs.push(await pagePng(i));
+      for(let i=0;i<n;i++){if(n>1&&inClaudeApp())toast(`PNG ${i+1}/${n}쪽 저장`);if(!await saveFile(name(i),pngs[i]))return}
       toast(expDir&&canPickDir()?`PNG ${n}장을 ${expDir.name} 폴더에 저장했어요`:'PNG를 저장했어요');return}
     if(kind==='pdf'){
       if(!window.jspdf){toast('PDF 도구를 불러오지 못했어요. 새로고침 후 다시 시도해 주세요');return}
