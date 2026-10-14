@@ -3095,8 +3095,15 @@ async function readCapture(job,s){
   const onCount=i=>n=>{if(n!==counts[i]){counts[i]=n;const t=counts.reduce((a,b)=>a+b,0);if(t!==job.found){job.found=t;updateJobStat(job)}}};
   const out=new Array(list.length);let next=0;
   const worker=async()=>{while(next<list.length){const i=next++,L2=list[i];let lastErr;
-    for(let tr=0;tr<2;tr++){try{out[i]=await readPiece(job,s,L2.blob,L2.part?promptFor(false,L2.part):promptFor(),onCount(i));break}catch(e){lastErr=e;if(e&&(e.name==='AbortError'||e.code==='cancelled'||e.code==='bad_key'||e.code==='not_granted'))throw e}}
-    if(!out[i])throw lastErr||{code:'invalid_json'}}};
+    const base=L2.part?promptFor(false,L2.part):promptFor();let best=null,bestN=1e9,fb='';
+    for(let tr=0;tr<3;tr++){
+      try{const d=await readPiece(job,s,L2.blob,base+fb,onCount(i));const pr=readingProblems(d,L2.part);
+        if(pr.length<bestN){best=d;bestN=pr.length}
+        if(!pr.length||tr===2||(fb&&tr>=1))break;
+        // tell it exactly what did not add up and let it look once more
+        fb=`\n\nIMPORTANT: a first reading of this same image had these mistakes: ${pr.slice(0,8).join('; ')}. Look again at the beams of every stem in those measures (partial 16th beams especially) and answer again in full.`}
+      catch(e){lastErr=e;if(e&&(e.name==='AbortError'||e.code==='cancelled'||e.code==='bad_key'||e.code==='not_granted'))throw e;if(best)break}}
+    out[i]=best;if(!out[i])throw lastErr||{code:'invalid_json'}}};
   await Promise.all([worker(),worker()]);
   const err=out.find(d=>d&&d.error);if(err&&out.every(d=>d&&(d.error||!(d.measures||[]).length)))return err;
   const merged={title:null,singer:null,timeSig:null,measures:[]};
@@ -3180,29 +3187,31 @@ How to read the 5-line percussion staff (standard drum-kit notation; "line 1" is
 - x, circled x or circled star notehead ON the first ledger line above the staff: crash cymbal -> "crash"
 If the sheet has its own instrument legend that differs, follow the legend.
 
-Rhythm encoding:
-- Time signature: ${hint}. "b" is the beat index starting at 0. In x/4 time a beat is a quarter note; in 6/8, 9/8 or 12/8 a beat is a dotted quarter; in 5/8 or 7/8 a beat is an 8th; in x/2 a beat is a half note.
-- For every beat of every measure give its division in "divs": in x/4 time 1, 2 (8ths), 4 (16ths), 8 (32nds), 3 (8th-note triplet) or 6 (16th-note triplet); in 6/8, 9/8 or 12/8 time 3 (8ths) or 6 (16ths); in other x/8 times (5/8, 7/8) a beat is one 8th: 1, 2 (16ths) or 4 (32nds). Use the smallest value that places every note of that beat exactly.
-- "s" is the onset slot inside the beat, from 0 to div-1. Only where each note STARTS matters; ignore note lengths and rests.
-- Notes with stems up (hands) and stems down (feet) both count. Notes struck together are separate entries with the same b and s.
-- Per note, optional: "h": "R" or "L" when a sticking letter is printed under that note (give it on one hand note of the chord); "a": "accent" for > or ^ marks, "ghost" for notes in parentheses; "g": "flam" when one small grace note sits right before it, "drag" when two small grace notes do (do not list grace notes as separate notes); "tr": 1 when a slash crosses its stem (double stroke); "ar": 1 when a small arrow (->) is printed above it (often after an "o").
-- Per measure, optional: "volta": "1." (or "2.") on the first measure under a 1st/2nd ending bracket, with "voltaLen": how many measures the bracket covers; "simile": true with "notes": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true for repeat barlines; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM if a tempo mark sits above it; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans; "lyrics": [{"b":0,"s":0,"t":"text"}] for words under the staff at the note they sit under.
+Rhythm: write each measure as its STEMS in time order, with the note value of each (the program works out the positions).
+- Time signature: ${hint}.
+- "up": every stem pointing up, in time order, with that voice's rests (in most drum charts this is every note, feet included). "down": only when the chart writes the feet as a separate voice with stems pointing down and its own rests; then those stems and rests go here. Drums that share one stem go together in one item.
+- Each item is {"d": value, "n": [drums on this stem]} or {"d": value, "r": 1} for a rest. Values: "1" whole, "2" half, "4" quarter, "8" eighth, "16" sixteenth, "32" thirty-second; add "." for dotted ("8." dotted eighth, "4." dotted quarter); add "t" for tuplets ("8t" one note of an 8th-note triplet, "16t" one note of a 16th-note sextuplet, "4t" quarter-note triplet).
+- Read each value from the beams or flags that reach THAT stem: none = quarter or longer, 1 = 8th, 2 = 16th, 3 = 32nd; a dot after the notehead makes it dotted. Inside a beamed group a short partial beam (a stub) touches only some stems, and only those stems are the shorter value. For one quarter beat: an 8th then two 16ths = "8","16","16"; two 16ths then an 8th = "16","16","8"; 16th, 8th, 16th = "16","8","16"; dotted 8th then 16th = "8.","16"; four 16ths = "16","16","16","16"; a triplet = "8t","8t","8t".
+- The values of each voice must add up to exactly one whole measure (4/4 = 4 quarters, 3/4 = 3, 6/8 = 6 eighths, 12/8 = 12 eighths). Check every measure; if a sum is off, look at the beams again.
+- In "n" a drum is its name ("hh") or, when it carries marks, an object like {"i":"hh","a":"accent"}. Optional marks: "h": "R" or "L" when a sticking letter is printed under that note (put it on one hand note of the chord); "a": "accent" for > or ^, "ghost" for a note in parentheses; "g": "flam" when one small grace note sits right before it, "drag" when two do (never list grace notes as items); "tr": 1 when a slash crosses its stem (double stroke); "ar": 1 when a small arrow (->) is printed above it; "cl": 1 for a "+" above a hi-hat.
+- On an item, optional "w": the lyric word or syllable printed under that stem.
+- Per measure, optional: "volta": "1." (or "2.") on the first measure under a 1st/2nd ending bracket, with "voltaLen": how many measures the bracket covers; "simile": true with "up": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true for repeat barlines; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM if a tempo mark sits above it; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans.
 
-${part?partNote(part)+'The JSON (after the analysis) must have this shape:':'Reply with only JSON in this shape:'}
-{"title": null, "singer": null, "timeSig": [4,4], "measures": [{"divs":[2,2,2,2], "notes":[{"b":0,"s":0,"i":"hh"},{"b":0,"s":0,"i":"kick"}]}]}
+${part?partNote(part)+'The JSON (after those lines) must have this shape:':'Reply with only JSON in this shape:'}
+{"title": null, "singer": null, "timeSig": [4,4], "measures": [{"up": [{"d":"8","n":["hh","kick"]}, {"d":"8","n":["hh"]}]}]}
 
-Example: a basic rock beat in 4/4 (hi-hat 8ths, kick on 1 and 3, snare on 2 and 4) is
-{"divs":[2,2,2,2],"notes":[{"b":0,"s":0,"i":"hh"},{"b":0,"s":0,"i":"kick"},{"b":0,"s":1,"i":"hh"},{"b":1,"s":0,"i":"hh"},{"b":1,"s":0,"i":"snare"},{"b":1,"s":1,"i":"hh"},{"b":2,"s":0,"i":"hh"},{"b":2,"s":0,"i":"kick"},{"b":2,"s":1,"i":"hh"},{"b":3,"s":0,"i":"hh"},{"b":3,"s":0,"i":"snare"},{"b":3,"s":1,"i":"hh"}]}
+Example 1, a basic rock beat in 4/4 (hi-hat 8ths, kick on 1 and 3, snare on 2 and 4):
+{"up":[{"d":"8","n":["hh","kick"]},{"d":"8","n":["hh"]},{"d":"8","n":["hh","snare"]},{"d":"8","n":["hh"]},{"d":"8","n":["hh","kick"]},{"d":"8","n":["hh"]},{"d":"8","n":["hh","snare"]},{"d":"8","n":["hh"]}]}
+Example 2, a busier 4/4 measure with open hi-hats (beat 2 is 8th + two 16ths, beat 3 is two 16ths + 8th):
+{"up":[{"d":"8","n":["crash","kick"]},{"d":"8","n":["hho","snare"]},{"d":"8","n":["hho","kick"]},{"d":"16","n":["hho","snare"]},{"d":"16","n":["kick"]},{"d":"16","n":["hho"]},{"d":"16","n":["kick"]},{"d":"8","n":["hho","snare"]},{"d":"8","n":["hho","kick"]},{"d":"8","n":["hho","snare"]}]}
+Example 3, an 8th rest then a note: [{"d":"8","r":1},{"d":"8","n":["snare"]}].
 
 Transcribe every measure you can see, left to right and top to bottom, and nothing else. Give "title" (song title) and "singer" only if they are printed in the image or written in my message (for example "제목: 사랑비, 가수: 김태우" -> "title": "사랑비", "singer": "김태우"); otherwise null. If the image is not drum notation, reply {"error": "<short reason in Korean>"}.`;
 }
 function partNote(part){
   return `THIS IMAGE: ${part.total>1?`piece ${part.k} of ${part.total}, cut out of a longer line at the barlines. `:''}It holds exactly ${part.measures} measure${part.measures>1?'s':''} of drum notation${part.k>1?' (it may start without a clef or time signature; that is normal)':''}. Return exactly ${part.measures} measure${part.measures>1?'s':''}.
 
-Work carefully BEFORE writing the JSON. First write an ANALYSIS in plain text (never use curly braces in it):
-- for each measure and each beat: count the beams or flags to get the note values and so the division of that beat; then list every notehead left to right with its slot and its staff position (which line or space, x or normal head, small "o" or "+" above, accent, grace notes, sticking letter);
-- watch for chords: two or three noteheads on one stem are separate notes at the same slot;
-- check that the number of measures is ${part.measures} and that every beat adds up.
+Work carefully BEFORE writing the JSON. First write, in plain text (never use curly braces), one line per measure: the values of its stems and rests in order for each voice, beat by beat, and their total in quarter notes, for example "M1 up: 8 8 | 8 16 16 | 16 16 8 | 8 8 = 4". Count the beams on every single stem; watch for partial 16th beams. If a total is not the full measure, look again and fix it.
 Then write a line with only JSON: and after it the JSON object.
 
 `;
@@ -3210,7 +3219,7 @@ Then write a line with only JSON: and after it the JSON object.
 // one call to Claude for one image piece → parsed JSON
 async function readPiece(job,s,blob,prompt,onCount){
   let text;
-  if(s){const r=await s(prompt,{images:[blob],modelTier:'complex',signal:job.ctl.signal,onText:({text})=>onCount((text.match(/"divs"/g)||[]).length)});text=r.text;if(r.truncated)throw {code:'invalid_json'}}
+  if(s){const r=await s(prompt,{images:[blob],modelTier:'complex',signal:job.ctl.signal,onText:({text})=>onCount((text.match(/"(divs|up)"\s*:/g)||[]).length)});text=r.text;if(r.truncated)throw {code:'invalid_json'}}
   else text=await apiText(job,blob,prompt);
   const i=text.lastIndexOf('JSON:');return parseJsonLoose(i>=0?text.slice(i+5):text);
 }
@@ -3245,6 +3254,37 @@ async function processQueue(){
     applyImport(job,await readCapture(job,s));
   }catch(e){job.status='err';job.msg=sampleErr(e);job.code=e&&e.code}
   busy=false;renderQueue();processQueue();
+}
+// note values from the capture ("8", "16", "8.", "8t"...) in 1/48ths of a quarter note
+const DUR_T={'1':192,'2':96,'4':48,'8':24,'16':12,'32':6,'64':3};
+function durTicks(d){const m=String(d==null?'':d).trim().toLowerCase().match(/^(\d+)\s*(t?)\s*(\.{0,2})\s*(t?)$/);if(!m||!DUR_T[m[1]])return 0;
+  let t=DUR_T[m[1]];if(m[2]||m[4])t=t*2/3;if(m[3].length===1)t*=1.5;else if(m[3].length===2)t*=1.75;return Math.round(t)}
+const isSeqMeasure=rm=>rm&&(Array.isArray(rm.up)||Array.isArray(rm.down)||Array.isArray(rm.seq));
+// a measure written as stems in time order → divisions per beat, notes with beat/slot, words; plus what didn't add up
+function seqMeasure(rm,ti){
+  const bt=Math.round(ti.bl*TPQ),full=ti.beats*bt,on=new Map(),words=[],problems=[];
+  [['up',rm.up||rm.seq],['down',rm.down]].forEach(([vn,seq])=>{if(!Array.isArray(seq)||!seq.length)return;let t=0;
+    for(const st of seq){if(!st||typeof st!=='object')continue;const d=durTicks(st.d);if(!d){problems.push(`${vn}: unknown value "${st.d}"`);continue}
+      const ns=(Array.isArray(st.n)?st.n:st.n?[st.n]:[]).map(x=>typeof x==='string'?{i:x}:x).filter(x=>x&&x.i);
+      if(!st.r&&ns.length&&t<full){if(!on.has(t))on.set(t,[]);on.get(t).push(...ns)}
+      if(st.w&&t<full)words.push({t,w:str(st.w)});
+      t+=d}
+    if(t!==full)problems.push(`${vn} voice adds up to ${Math.round(t/48*100)/100} quarters instead of ${Math.round(full/48*100)/100}`)});
+  const all=[...on.keys(),...words.map(w=>w.t)],divs=[];
+  for(let b=0;b<ti.beats;b++){const offs=all.filter(t=>t>=b*bt&&t<(b+1)*bt).map(t=>t-b*bt);
+    divs.push(ti.divs.slice().sort((x,y)=>x-y).find(D=>offs.every(o=>Math.abs(o*D/bt-Math.round(o*D/bt))<1e-6))||ti.divs[ti.divs.length-1])}
+  const notes=[];for(const [t,ns] of on){const b=Math.floor(t/bt),D=divs[b],sl=Math.min(D-1,Math.round((t-b*bt)*D/bt));for(const n of ns)notes.push({...n,b,s:sl})}
+  const lyrics=words.map(w=>{const b=Math.floor(w.t/bt),D=divs[b];return {b,s:Math.min(D-1,Math.round((w.t-b*bt)*D/bt)),t:w.w}});
+  const m={...rm,divs,notes,lyrics:[...(Array.isArray(rm.lyrics)?rm.lyrics:[]),...lyrics]};delete m.up;delete m.down;delete m.seq;
+  return {m,problems};
+}
+// what is wrong with a reading (for one more look): sums that don't fill the measure, a wrong number of measures
+function readingProblems(d,part){
+  if(!d||d.error||!Array.isArray(d.measures))return [];
+  const ts=isTs(d.timeSig)?validTs(d.timeSig):tsAt(score.measures.length-1),ti=tsInfo(ts),out=[];
+  if(part&&d.measures.length!==part.measures)out.push(`there are ${part.measures} measures in the image but the answer has ${d.measures.length}`);
+  d.measures.forEach((rm,i)=>{if(isSeqMeasure(rm)&&!rm.simile)for(const p of seqMeasure(rm,ti).problems)out.push(`measure ${i+1}: ${p}`)});
+  return out;
 }
 // a long stretch of open hi-hats is written the short way: "o→" on the first one, plain x for the rest,
 // until a closed hi-hat comes (other drums and cymbals in between don't end it)
@@ -3283,11 +3323,12 @@ function applyImport(job,data){
     else{if(nt&&!score.title)score.title=nt;if(ns&&!score.composer)score.composer=ns}
     const start=score.measures.length;
     let ts=start?tsAt(start-1):score.ts;
-    raw.forEach((rm,ri)=>{
-      if(!rm||typeof rm!=='object')return;
+    raw.forEach((rm0,ri)=>{
+      let rm=rm0;if(!rm||typeof rm!=='object')return;
       let own=null;
       if(ri===0&&start>0&&dts&&!sameTs(dts,ts)){own=dts;ts=dts}
-      const ti=tsInfo(ts),divs=Array.isArray(rm.divs)?rm.divs.map(Number):[];
+      const ti=tsInfo(ts);if(isSeqMeasure(rm))rm=seqMeasure(rm,ti).m;
+      const divs=Array.isArray(rm.divs)?rm.divs.map(Number):[];
       const m=normMeasure({...rm,divs,notes:Array.isArray(rm.notes)?rm.notes:[],
         lyrics:(Array.isArray(rm.lyrics)?rm.lyrics:[]).map(l=>({b:+l.b,s:+l.s,d:+(divs[+l.b]||defDiv(ti)),t:l.t}))},ti);
       if(own)m.ts=own;
