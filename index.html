@@ -253,6 +253,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 /* SVG score (screen) */
 .mhit{fill:transparent}
 .bhit{fill:transparent;cursor:ns-resize}.beamg:hover .bhit{fill:var(--sel);fill-opacity:.12}
+.lyr-hid{opacity:.22}
 .spansel{fill:var(--sel);fill-opacity:.16;stroke:var(--sel);stroke-width:.14;pointer-events:none}
 .mhit.on{fill:var(--sel);fill-opacity:.12;stroke:var(--sel);stroke-width:.14}
 .nhit{fill:transparent;cursor:pointer}
@@ -923,9 +924,6 @@ function computeLayout(){
     const lo=score.voices===2?0:-2.2;sys.lo=lo;
     sys.lyrY=LYR_Y+lo;
     sys.below=(sys.hasLyr?7.6:6.4)+lo+(sys.stkBelow||0);
-    // words (and sticking) sit below the lowest stem or beam of the line, never on it
-    if(sys.hasLyr){const low=Math.max(...ms.map(k=>lowPoint(VL[k]))),need=low+txs('lyr').sz*0.95+0.45;
-      if(need>sys.lyrY){const ex=need-sys.lyrY;sys.lyrY+=ex;sys.below+=ex}}
     sys.gapA=score.measures[ms[0]].gapA||0;
     systems.push(sys);i=j;
   }
@@ -1007,18 +1005,6 @@ const mtx=(ml,b,f)=>ml.beatX[b]+ml.pre[b]+f*(ml.beatW[b]-ml.pre[b]);
 
 /* ---------- SVG rendering ---------- */
 const yStep=(top,st)=>top+4-st*0.5;
-// how far below the top staff line the music of one measure reaches (heads, stems pointing down, their beams)
-function lowPoint(vls){
-  let lo=4.6;
-  [1,2].forEach(v=>{const vl=vls&&vls[v-1];if(!vl||vl.mrest||!vl.items)return;
-    const yb=it=>Math.max(...it.notes.map(n=>yStep(0,INST[n.i].step)));
-    for(const it of vl.items){if(it.k!=='n'||!it.notes||!it.notes.length)continue;const b=yb(it);lo=Math.max(lo,b+0.6);
-      if(v===2||it.down){let tip=Math.max(b+3.5,2)+(it.dur&&it.dur.flags>=3?0.6:0);const sl=stemAdj(it);if(sl)tip=Math.max(b+1.8,tip+sl);lo=Math.max(lo,tip+0.3)}}
-    for(const g of (vl.groups||[])){if(!(v===2||g[0].down))continue;const lv=Math.max(...g.map(i=>i.dur.flags)),ext=lv>2?(lv-2)*0.75:0,b=Math.max(...g.map(yb));
-      let yB=b+3.5+ext;const sl=stemAdj(g[0]);if(sl)yB=Math.max(b+1.8+ext,yB+sl);lo=Math.max(lo,yB+0.55+(vl.tuplets&&vl.tuplets.length?1.4:0))}
-  });
-  return lo;
-}
 const glyph=(x,y,ch,cls='',fs)=>`<text class="mu${cls?' '+cls:''}" x="${r(x)}" y="${r(y)}"${fs?` style="font-size:${fs}px"`:''}>${ch}</text>`;
 const line=(x1,y1,x2,y2,w)=>`<line class="ln" x1="${r(x1)}" y1="${r(y1)}" x2="${r(x2)}" y2="${r(y2)}" stroke-width="${w}"/>`;
 const bar=(x1,x2,y,h=0.5)=>`<rect class="fl" x="${r(x1)}" y="${r(y)}" width="${r(Math.max(0.01,x2-x1))}" height="${h}"/>`;
@@ -1034,7 +1020,7 @@ function elG(key,off,inner,hit){
 }
 function renderPage(pi,exp){
   RX=!!exp;
-  if(exp){L.mTop={};L.tops=[]} // fresh heights for a printout (screen render resets them itself)
+  if(exp){L.mTop={};L.tops=[];L.lows={}} // fresh heights for a printout (screen render resets them itself)
   const pg=L.pages[pi];
   let o=exp?`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${r(PAGE_W)} ${r(PAGE_H)}" width="${BASE_W*14}" height="${r(BASE_H*14)}"><style>${exportCss()}</style><rect width="${PAGE_W}" height="${PAGE_H}" fill="#ffffff"/>`
     :`<svg class="page" data-p="${pi}" viewBox="0 0 ${r(PAGE_W)} ${r(PAGE_H)}" role="img" aria-label="악보 ${pi+1}쪽"><rect class="paper-bg" width="${PAGE_W}" height="${PAGE_H}"/>`;
@@ -1244,7 +1230,10 @@ function renderMeasureBody(mi,sys,exp){
   else o+=drawVoice(v1,1,v2,ml,top,mi,exp)+drawVoice(v2,2,v1,ml,top,mi,exp);
   m.lyrics.forEach((l,li)=>{
     const lx=L.lyrX&&L.lyrX[mi]&&L.lyrX[mi][li],x=lx!=null?lx:mtx(ml,l.b,l.s/l.d)+HEAD_W/2+(l.dx||0);
-    o+=`<text class="tx t-lyr" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle">${esc(l.t)}</text>`;
+    const st=txs('lyr'),hw2=textW(l.t,st.sz,st.w,fontCss())/2,ty=top+sys.lyrY-st.sz*0.78;
+    const hit=[mi-1,mi,mi+1].some(k=>(L.lows&&L.lows[k]||[]).some(q=>q.x1>x-hw2&&q.x0<x+hw2&&q.y>ty));
+    if(hit&&exp)return;
+    o+=`<text class="tx t-lyr${hit?' lyr-hid':''}" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle">${esc(l.t)}</text>`;
   });
   // sticking (R / L): on the lyric line, or on its own line below when a word sits under the same note
   {const st=txs('stk'),seen=new Set();
@@ -1289,6 +1278,10 @@ function drawVoice(vl,v,other,ml,top,mi,exp){
     if(it.k==='r'){if(!(v===2&&score.hideV2Rests))o+=drawRest(it,up,twoV,top,mi,v);continue}
     o+=drawChord(it,up&&!it.down,top,mi,selId,exp);
   }
+  if(L.lows){const lw=L.lows[mi]||(L.lows[mi]=[]);
+    for(const it of vl.items){if(it.k!=='n')continue;lw.push({x0:it.x-0.1,x1:it.x+HEAD_W+0.1,y:it.yBot+0.55});
+      if(!(up&&!it.down))lw.push({x0:it.stemX-0.3,x1:it.stemX+(it.beamed||!(it.dur.flags>=1)?0.3:1.3),y:it.tip+0.15})}
+    for(const g of vl.groups)if(!g.up)lw.push({x0:g[0].stemX-0.2,x1:g[g.length-1].stemX+0.2,y:g.yB+0.15+(vl.tuplets&&vl.tuplets.length?1.4:0)})}
   for(const g of vl.groups){const bm=drawBeam(g,g.up);if(exp)o+=bm;else{const xs=g.map(i=>i.stemX),hb=g.up?g.yB-0.5:g.yB-0.9;o+=`<g class="beamg" data-beam="${g.key}" data-m="${mi}" data-up="${g.up?1:0}">${bm}<rect class="bhit" x="${r(xs[0]-0.3)}" y="${r(hb)}" width="${r(xs[xs.length-1]-xs[0]+0.6)}" height="1.4"/></g>`}}
   for(const tp of vl.tuplets)o+=drawTuplet(tp,vl,up,top);
   return o;
@@ -1458,7 +1451,7 @@ ${PT_FACE}svg{--paper-ink:#111111;--sel:#111111}${SVG_RULES}${textCss()}`}
 const pagesEl=$('#pages'),canvasEl=$('#canvas');let txStyleEl=null;
 function render(scrollSel){
   if(txStyleEl)txStyleEl.textContent=textCss();
-  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];L.txtPos={};L.beamOf={};L.beamUp={};
+  computeLayout();L.heads=[];L.rests=[];L.tempoPos={};L.secPos={};L.mTop={};L.tops=[];L.txtPos={};L.beamOf={};L.beamUp={};L.lows={};
   if(zoomFit&&canvasEl.clientWidth)fitZoom();
   pagesEl.innerHTML=L.pages.map((_,i)=>renderPage(i,false)).join('');
   const w=BASE_W*PX_PER_SP*zoom;
