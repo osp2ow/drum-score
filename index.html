@@ -254,6 +254,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .mhit{fill:transparent}
 .bhit{fill:transparent;cursor:ns-resize}.beamg:hover .bhit{fill:var(--sel);fill-opacity:.12}
 .lyr-hid{opacity:.22}
+.pubdir{margin-top:18px;font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:640px}.pubdir b{color:var(--ink)}.pubdir button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
 .spansel{fill:var(--sel);fill-opacity:.16;stroke:var(--sel);stroke-width:.14;pointer-events:none}
 .mhit.on{fill:var(--sel);fill-opacity:.12;stroke:var(--sel);stroke-width:.14}
 .nhit{fill:transparent;cursor:pointer}
@@ -323,6 +324,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
       <button class="pubcard" data-exp="png"><b>PNG 이미지</b><span>페이지마다 한 장씩. 인스타·카톡 공유용</span></button>
       <button class="pubcard" data-exp="json"><b>백업 파일 (JSON)</b><span>나중에 이 편집기에서 다시 열어 고칠 때</span></button>
     </div>
+    <div class="pubdir" id="pubDir"></div>
   </section>
 
   <!-- SCORE -->
@@ -3558,7 +3560,48 @@ async function initStore(){
 /* ---------- export ---------- */
 $('#viewPub').addEventListener('click',e=>{const b=e.target.closest('[data-exp]');if(b)doExport(b.dataset.exp)});
 function fileBase(){return (score.title||'드럼 악보').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,60)||'드럼 악보'}
+/* ---------- where exported files go ---------- */
+// a plain ZIP (stored, no compression) so several pages can be saved with one confirmation
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?(0xEDB88320^(c>>>1)):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRC_T[(c^u8[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+function makeZip(files){
+  const enc=new TextEncoder(),parts=[],cen=[];let off=0;const d=new Date(),dt=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate(),tm=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1);
+  for(const f of files){const name=enc.encode(f.name),data=f.data,crc=crc32(data);
+    const h=new DataView(new ArrayBuffer(30));h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,0,true);h.setUint16(10,tm,true);h.setUint16(12,dt,true);h.setUint32(14,crc,true);h.setUint32(18,data.length,true);h.setUint32(22,data.length,true);h.setUint16(26,name.length,true);h.setUint16(28,0,true);
+    parts.push(h.buffer,name,data);
+    const c=new DataView(new ArrayBuffer(46));c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,0,true);c.setUint16(12,tm,true);c.setUint16(14,dt,true);c.setUint32(16,crc,true);c.setUint32(20,data.length,true);c.setUint32(24,data.length,true);c.setUint16(28,name.length,true);c.setUint32(42,off,true);
+    cen.push(c.buffer,name);off+=30+name.length+data.length}
+  const cs=cen.reduce((a,b)=>a+(b.byteLength||b.length),0),e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+  return new Blob([...parts,...cen,e.buffer],{type:'application/zip'});
+}
+// outside the Claude app (Chrome, Edge): pick a folder once and every export is written there without asking
+let expDir=null;
+function kvDb(){return new Promise((res,rej)=>{const r=indexedDB.open('jds-kv',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function kvGet(k){try{const db=await kvDb();return await new Promise(res=>{const q=db.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>res(q.result);q.onerror=()=>res(null)})}catch(e){return null}}
+async function kvSet(k,v){try{const db=await kvDb();await new Promise(res=>{const t=db.transaction('kv','readwrite');v==null?t.objectStore('kv').delete(k):t.objectStore('kv').put(v,k);t.oncomplete=res;t.onerror=res})}catch(e){}}
+const inClaudeApp=()=>!!(window.claude&&window.claude.use);
+const canPickDir=()=>!inClaudeApp()&&typeof window.showDirectoryPicker==='function';
+async function dirReady(ask){
+  if(!expDir)return false;
+  try{let p=await expDir.queryPermission({mode:'readwrite'});if(p!=='granted'&&ask)p=await expDir.requestPermission({mode:'readwrite'});return p==='granted'}catch(e){return false}
+}
+async function writeToDir(name,blob){const fh=await expDir.getFileHandle(name.replace(/[\\/:*?"<>|]/g,'_'),{create:true});const w=await fh.createWritable();await w.write(blob);await w.close()}
+function renderPubDir(){
+  const el=$('#pubDir');if(!el)return;
+  if(inClaudeApp()){el.innerHTML='<span>Claude 앱 안에서는 저장 위치를 직접 고를 수 없어서 다운로드 폴더로 저장돼요. 여러 쪽짜리 PNG는 <b>ZIP 파일 하나</b>로 묶어서 한 번만 확인하면 돼요.</span>';return}
+  if(!canPickDir()){el.innerHTML='<span>이 브라우저는 저장 폴더를 고를 수 없어서 다운로드 폴더로 저장돼요. 폴더를 고르려면 Chrome이나 Edge에서 열어 주세요.</span>';return}
+  el.innerHTML=`<span>저장 위치: <b>${expDir?esc(expDir.name)+' 폴더':'브라우저 다운로드 폴더'}</b></span><button id="pickDir">${expDir?'폴더 바꾸기':'저장 폴더 고르기'}</button>${expDir?'<button id="clearDir">다운로드 폴더로</button>':''}<span style="flex-basis:100%">폴더를 고르면 PNG 여러 장도 물어보지 않고 그 폴더에 한꺼번에 저장돼요.</span>`;
+}
+document.addEventListener('click',async e=>{
+  if(e.target.id==='pickDir'){try{expDir=await window.showDirectoryPicker({id:'jds-export',mode:'readwrite'});await kvSet('expDir',expDir);toast(`이제 ${expDir.name} 폴더에 저장해요`)}catch(err){if(err&&err.name!=='AbortError')toast('폴더를 고르지 못했어요')}renderPubDir()}
+  if(e.target.id==='clearDir'){expDir=null;await kvSet('expDir',null);renderPubDir();toast('다시 다운로드 폴더로 저장해요')}
+});
+if(canPickDir())kvGet('expDir').then(h=>{if(h&&h.kind==='directory'){expDir=h;renderPubDir()}});
+renderPubDir();
 async function saveFile(filename,data){
+  if(expDir&&canPickDir()&&await dirReady(true)){
+    try{await writeToDir(filename,data instanceof Blob?data:new Blob([data]));return true}catch(e){toast('고른 폴더에 저장하지 못해서 다운로드 폴더로 저장할게요')}
+  }
   const dl=await capUse('downloads');
   if(!dl){
     // outside the Claude app (e.g. GitHub Pages) a normal browser download works
@@ -3583,11 +3626,17 @@ async function pagePng(pi){
 }
 async function doExport(kind){
   const base=fileBase();
+  if(expDir&&canPickDir())await dirReady(true);
   try{
     if(kind==='json'){if(await saveFile(base+'.json',JSON.stringify(score,null,1)))toast('백업 파일을 저장했어요');return}
     toast('파일을 만드는 중…');
     computeLayout();const n=L.pages.length;
-    if(kind==='png'){for(let i=0;i<n;i++){const b=await pagePng(i);if(!await saveFile(n>1?`${base} ${i+1}쪽.png`:`${base}.png`,b))return}toast('PNG를 저장했어요');return}
+    if(kind==='png'){
+      const name=i=>n>1?`${base} ${i+1}쪽.png`:`${base}.png`;
+      if(n>1&&inClaudeApp()){const files=[];for(let i=0;i<n;i++)files.push({name:name(i),data:new Uint8Array(await (await pagePng(i)).arrayBuffer())});
+        if(await saveFile(`${base} PNG ${n}장.zip`,makeZip(files)))toast(`PNG ${n}장을 ZIP 하나로 저장했어요`);return}
+      for(let i=0;i<n;i++){const b=await pagePng(i);if(!await saveFile(name(i),b))return}
+      toast(expDir&&canPickDir()?`PNG ${n}장을 ${expDir.name} 폴더에 저장했어요`:'PNG를 저장했어요');return}
     if(kind==='pdf'){
       if(!window.jspdf){toast('PDF 도구를 불러오지 못했어요. 새로고침 후 다시 시도해 주세요');return}
       const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
