@@ -923,6 +923,9 @@ function computeLayout(){
     const lo=score.voices===2?0:-2.2;sys.lo=lo;
     sys.lyrY=LYR_Y+lo;
     sys.below=(sys.hasLyr?7.6:6.4)+lo+(sys.stkBelow||0);
+    // words (and sticking) sit below the lowest stem or beam of the line, never on it
+    if(sys.hasLyr){const low=Math.max(...ms.map(k=>lowPoint(VL[k]))),need=low+txs('lyr').sz*0.95+0.45;
+      if(need>sys.lyrY){const ex=need-sys.lyrY;sys.lyrY+=ex;sys.below+=ex}}
     sys.gapA=score.measures[ms[0]].gapA||0;
     systems.push(sys);i=j;
   }
@@ -1004,6 +1007,18 @@ const mtx=(ml,b,f)=>ml.beatX[b]+ml.pre[b]+f*(ml.beatW[b]-ml.pre[b]);
 
 /* ---------- SVG rendering ---------- */
 const yStep=(top,st)=>top+4-st*0.5;
+// how far below the top staff line the music of one measure reaches (heads, stems pointing down, their beams)
+function lowPoint(vls){
+  let lo=4.6;
+  [1,2].forEach(v=>{const vl=vls&&vls[v-1];if(!vl||vl.mrest||!vl.items)return;
+    const yb=it=>Math.max(...it.notes.map(n=>yStep(0,INST[n.i].step)));
+    for(const it of vl.items){if(it.k!=='n'||!it.notes||!it.notes.length)continue;const b=yb(it);lo=Math.max(lo,b+0.6);
+      if(v===2||it.down){let tip=Math.max(b+3.5,2)+(it.dur&&it.dur.flags>=3?0.6:0);const sl=stemAdj(it);if(sl)tip=Math.max(b+1.8,tip+sl);lo=Math.max(lo,tip+0.3)}}
+    for(const g of (vl.groups||[])){if(!(v===2||g[0].down))continue;const lv=Math.max(...g.map(i=>i.dur.flags)),ext=lv>2?(lv-2)*0.75:0,b=Math.max(...g.map(yb));
+      let yB=b+3.5+ext;const sl=stemAdj(g[0]);if(sl)yB=Math.max(b+1.8+ext,yB+sl);lo=Math.max(lo,yB+0.55+(vl.tuplets&&vl.tuplets.length?1.4:0))}
+  });
+  return lo;
+}
 const glyph=(x,y,ch,cls='',fs)=>`<text class="mu${cls?' '+cls:''}" x="${r(x)}" y="${r(y)}"${fs?` style="font-size:${fs}px"`:''}>${ch}</text>`;
 const line=(x1,y1,x2,y2,w)=>`<line class="ln" x1="${r(x1)}" y1="${r(y1)}" x2="${r(x2)}" y2="${r(y2)}" stroke-width="${w}"/>`;
 const bar=(x1,x2,y,h=0.5)=>`<rect class="fl" x="${r(x1)}" y="${r(y)}" width="${r(Math.max(0.01,x2-x1))}" height="${h}"/>`;
