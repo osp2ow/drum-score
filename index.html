@@ -3246,6 +3246,18 @@ async function processQueue(){
   }catch(e){job.status='err';job.msg=sampleErr(e);job.code=e&&e.code}
   busy=false;renderQueue();processQueue();
 }
+// a long stretch of open hi-hats is written the short way: "o→" on the first one, plain x for the rest,
+// until a closed hi-hat comes (other drums and cymbals in between don't end it)
+function simplifyOpenHH(ms){
+  const hs=[];ms.forEach((m,k)=>m.notes.forEach(n=>{if(n.i==='hh'||n.i==='hho')hs.push({k,t:n.b+n.s/m.divs[n.b],n})}));
+  hs.sort((a,c)=>a.k-c.k||a.t-c.t);
+  for(let i=0;i<hs.length;){
+    if(hs[i].n.i!=='hho'||hs[i].n.oc){i++;continue}
+    let j=i;while(j+1<hs.length&&hs[j+1].n.i==='hho'&&!hs[j+1].n.oc)j++;
+    if(j-i+1>=3){hs[i].n.ar=1;for(let q=i+1;q<=j;q++){hs[q].n.i='hh';delete hs[q].n.ar}}
+    i=j+1;
+  }
+}
 function applyImport(job,data){
   if(!data||typeof data!=='object'){job.status='err';job.msg='악보를 읽지 못했어요. 다시 시도해 주세요.';return}
   if(data.error){job.status='err';job.msg='드럼 악보를 찾지 못했어요: '+String(data.error).slice(0,80);return}
@@ -3282,6 +3294,7 @@ function applyImport(job,data){
       score.measures.push(m);
     });
     if(score.measures.length===start)return false;
+    simplifyOpenHH(score.measures.slice(start));
     // shuffle song: straight 8ths in the capture become triplet 1st / 3rd notes, and the shuffle mark goes on
     if($('#capShuffle')&&$('#capShuffle').checked){
       for(let mi=start;mi<score.measures.length;mi++){const m=score.measures[mi],ti=tiAt(mi);if(ti.compound||ti.bf!==0)continue;
