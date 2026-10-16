@@ -731,7 +731,11 @@ function voiceLayout(m,v,ti){
         if(!(m.tq||[]).includes(`${b}:${h}`)&&!keys.some(x=>x%3!==0)){const a0=chords.get(6*h),a1=chords.get(6*h+3);
           if(!a0&&!a1)rest(2*h,4,2);else if(a0&&!a1)note(2*h,4,2,a0);else{if(a0)note(2*h,4,1,a0);else rest(2*h,4,1);note(2*h+1,4,1,a1)}}
         else{const slot=[[],[],[]];for(const x of keys)slot[Math.min(2,Math.round((x-6*h)/2))].push(...chords.get(x));
-          slot.forEach((c,k)=>{const d=durOf(ti,6,1);d.tup=3;if(c.length)items.push({k:'n',b,s:3*h+k,D:6,n:1,dur:d,notes:c,want:0});else items.push({k:'r',b,s:3*h+k,D:6,n:1,dur:d})});
+          for(let k=0;k<3;){const c=slot[k];
+            let n=1;if(c.length){const du=Math.max(0,...c.map(x=>x.du||0));if(du){const w=Math.round(du/ti.bl*6);if(w>1)n=Math.min(3-k,w)}
+              for(let j=k+1;j<k+n;j++)if(slot[j].length){n=j-k;break}}
+            const d=durOf(ti,6,n);d.tup=3;
+            if(c.length)items.push({k:'n',b,s:3*h+k,D:6,n,dur:d,notes:c,want:0});else items.push({k:'r',b,s:3*h+k,D:6,n:1,dur:d});k+=c.length?n:1}
           subs.push(h/2)}
       }
       // the lower (16th) beam breaks between the 16ths and the triplet; the top beam runs through
@@ -1843,9 +1847,12 @@ function typeOnRest(inst,shift){
   if(slotWise||shift){stampOnRest(inst,!shift);return}
   sel={type:'measure',m:mi,pos:posFromBeats(mi,sel.t)};enterAtCursor(inst);
 }
+// in a triplet / sextuplet / 32nd beat a written value takes this many slots: in a sextuplet a 16th = 1, an 8th = 2, a dotted 8th = 3
+const SLOT_Q={3:0.5,6:0.25,8:0.125};
+function tupSlots(D,q){const sq=SLOT_Q[D];if(!sq)return 1;const n=q/sq;return isInt(n)&&n>=1?Math.round(n):1}
 function stampOnRest(inst,advance){
   hear(inst);
-  const mi=sel.m,p=posFromBeats(mi,sel.t),b=p.b;let nn=null;
+  const mi=sel.m,p=posFromBeats(mi,sel.t),b=p.b;let nn=null,endT=null;
   const ok=commit(()=>{
     const m=score.measures[mi];if(!m)return false;m.simile=false;
     const s0=slotFor(m,p.b,p.k,p.u,tiAt(mi));
@@ -1853,10 +1860,16 @@ function stampOnRest(inst,advance){
     const ex=m.notes.find(n=>n.b===b&&n.s===s0&&n.i===inst);if(ex){sel={type:'note',m:mi,id:ex.id};nn=ex;return}
     const twin=m.notes.find(n=>n.b===b&&n.s===s0&&INST[n.i].step===INST[inst].step&&INST[n.i].head!=='n'&&INST[inst].head!=='n');if(twin)m.notes.splice(m.notes.indexOf(twin),1);
     const n={id:nid(),b,s:s0,i:inst};m.notes.push(n);sel={type:'note',m:mi,id:n.id};nn=n;
+    // how long the note is inside the tuplet (keys 3 / 4 / 4+dot …)
+    const ti=tiAt(mi),div=m.divs[b],written=inputDur*(inputDot?1.5:1);
+    let D=0,pos=0,max=0;
+    if(!ti.compound&&ti.bf===0&&(div===3||div===6||div===8)){D=div;pos=s0;max=div-s0}
+    else if(div===12&&!ti.compound&&ti.bf===0&&s0%2===0){const h=s0>=6?1:0;D=6;pos=s0/2;max=3*h+3-pos}
+    if(D){const k=Math.min(tupSlots(D,written),max);if(k>1){m.notes.filter(x=>x.b===b&&x.s===s0).forEach(x=>x.du=k/D*ti.bl)}endT=b+(pos+Math.max(1,k))/D}
   });
   // move on to whatever comes next (the next rest of a triplet, the next note…) so a, s, d… fill in order
   if(ok&&advance&&nn){const list=orderedElements(),t=nn.b+nn.s/score.measures[mi].divs[nn.b];
-    const nx=list.find(x=>x.mi>mi||(x.mi===mi&&x.t>t+1e-9));if(nx)selectElement(nx)}
+    const nx=list.find(x=>x.mi>mi||(x.mi===mi&&(endT!=null?x.t>=endT-1e-9:x.t>t+1e-9)));if(nx)selectElement(nx)}
 }
 // every note and every visible rest, in reading order (for ← → and for moving on after a stamp)
 function orderedElements(){
@@ -1938,31 +1951,46 @@ function setRestDur(mi,t,durQ){
     sel={type:'rest',m:mi,t,v};
   });
 }
-// key 5 on a note or rest in x/4 time: that beat starts over as one quarter (the note on the beat stays, the rest of the beat is cleared)
-function resetBeat(mi,b){
+// key 5 on a note or rest in x/4 time: the clicked beat becomes one quarter — the clicked note (with whatever is stacked on it)
+// moves to the start of the beat as a quarter note and everything else in that beat goes; a clicked rest gives a quarter rest
+function resetBeat(mi,b,clicked){
   const m=score.measures[mi],ti=tiAt(mi);if(!m||ti.compound||ti.bf!==0)return false;
   let keep=null;
   commit(()=>{
-    m.notes=m.notes.filter(n=>n.b!==b||n.s===0);m.notes.forEach(n=>{if(n.b===b){delete n.du;delete n.dx}});
+    const cs=clicked?clicked.s:null;
+    m.notes=m.notes.filter(n=>n.b!==b||(cs!=null&&n.s===cs));
+    m.notes.forEach(n=>{if(n.b===b){n.s=0;delete n.du;delete n.dx}});
     m.divs[b]=defDiv(ti);m.simile=false;
     if(m.rb){m.rb=m.rb.filter(x=>!(x>b+1e-9&&x<b+1-1e-9));if(!m.rb.length)delete m.rb}
     if(m.rdx){delete m.rdx[tKey(b)];for(const k of Object.keys(m.rdx))if(+k>b&&+k<b+1)delete m.rdx[k];if(!Object.keys(m.rdx).length)delete m.rdx}
     if(m.tq){m.tq=m.tq.filter(k=>!k.startsWith(b+':'));if(!m.tq.length)delete m.tq}
-    keep=m.notes.find(n=>n.b===b&&n.s===0);
+    keep=clicked?m.notes.find(n=>n.id===clicked.id)||m.notes.find(n=>n.b===b&&n.s===0):null;
     sel=keep?{type:'note',m:mi,id:keep.id}:{type:'rest',m:mi,t:b,v:1};
   });
-  toast(`${b+1}박을 4분음표 하나로 되돌렸어요 · 다시 찍으면 돼요`);return true;
+  toast(keep?`${b+1}박을 4분음표 하나로 바꿨어요 · 다시 찍으면 돼요`:`${b+1}박을 4분쉼표로 비웠어요 · 다시 찍으면 돼요`);return true;
 }
 function setDuration(q){
   inputDur=q;inputDot=false;
   // 5 (quarter) on a note or rest: start that beat over
   if(q===1&&!inputMode&&sel&&(sel.type==='note'||sel.type==='rest')){const sn=getSelNote(),mi=sn?sn.m:sel.m,b=sn?sn.n.b:Math.floor(sel.t+1e-9),ti=tiAt(mi);
-    if(!ti.compound&&ti.bf===0&&resetBeat(mi,b))return}
-  if(sel&&sel.type==='rest'&&!inputMode){setRestDur(sel.m,sel.t,curDurQ());return}
+    if(!ti.compound&&ti.bf===0&&resetBeat(mi,b,sn?sn.n:null))return}
+  if(sel&&sel.type==='rest'&&!inputMode){
+    // inside a tuplet beat a number key only picks the value for the next note
+    const m=score.measures[sel.m],ti=tiAt(sel.m),bb=Math.floor(sel.t+1e-9),div=m&&m.divs[bb];
+    if(m&&!ti.compound&&ti.bf===0&&(div===3||div===6||div===8||div===12)){renderChrome();toast(`${durLabel()} · 악기 키를 누르면 이 길이로 찍혀요`);return}
+    setRestDur(sel.m,sel.t,curDurQ());return}
   const sn=getSelNote();
-  if(sn&&!inputMode)setChordDur(sn.m,sn.n.id,curDurQ());else renderChrome();
+  if(sn&&!inputMode){const m=score.measures[sn.m],ti=tiAt(sn.m),div=m.divs[sn.n.b];
+    if(!ti.compound&&ti.bf===0&&(div===3||div===6||div===8||(div===12&&sn.n.s%2===0&&(m.tq||[]).includes(sn.n.b+':'+(sn.n.s>=6?1:0))))){
+      const D=div===12?6:div,pos=div===12?sn.n.s/2:sn.n.s,max=div===12?3*(sn.n.s>=6?1:0)+3-pos:div-pos,k=Math.min(tupSlots(D,inputDur*(inputDot?1.5:1)),max);
+      commit(()=>{m.notes.filter(x=>x.b===sn.n.b&&x.s===sn.n.s).forEach(x=>{if(k>1)x.du=k/D*ti.bl;else delete x.du});
+        // notes the longer value now covers go
+        m.notes=m.notes.filter(x=>!(x.b===sn.n.b&&(div===12?x.s/2:x.s)>pos&&(div===12?x.s/2:x.s)<pos+k))});return}
+    setChordDur(sn.m,sn.n.id,curDurQ())}else renderChrome();
 }
 function toggleDot(){
+  if(sel&&sel.type==='rest'&&!inputMode){const m=score.measures[sel.m],ti=tiAt(sel.m),bb=Math.floor(sel.t+1e-9),div=m&&m.divs[bb];
+    if(m&&!ti.compound&&ti.bf===0&&(div===3||div===6||div===8||div===12)){inputDot=!inputDot;renderChrome();toast(`${durLabel()} · 악기 키를 누르면 이 길이로 찍혀요`);return}}
   if(sel&&sel.type==='rest'&&!inputMode){const q=restDurQ();if(!q)return;const dotted=isInt(Math.log2(q/1.5));setRestDur(sel.m,sel.t,dotted?q/1.5:q*1.5);return}
   const sn=getSelNote();
   if(sn&&!inputMode){const q=chordDurQ(sn.m,sn.n.id);if(!q)return;const dotted=isInt(Math.log2(q/1.5));setChordDur(sn.m,sn.n.id,dotted?q/1.5:q*1.5);return}
