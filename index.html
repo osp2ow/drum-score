@@ -590,7 +590,7 @@ function cleanOff(off){
   return Object.keys(o).length?o:null;
 }
 function normMeasure(m,ti){
-  const divs=Array.from({length:ti.beats},(_,b)=>{const d=+((m.divs||[])[b]);return ti.divs.includes(d)?d:(ti.compound&&d===1?3:defDiv(ti))});
+  const divs=Array.from({length:ti.beats},(_,b)=>{const d=+((m.divs||[])[b]);return ti.divs.includes(d)||(d===12&&!ti.compound&&ti.bf===0)?d:(ti.compound&&d===1?3:defDiv(ti))});
   const seen=new Set();
   const notes=(Array.isArray(m.notes)?m.notes:[]).map(n=>{
       const o={id:n.id||nid(),b:+n.b,s:+n.s,i:aliasInst(n.i)};
@@ -621,6 +621,7 @@ function normMeasure(m,ti){
   if(Number.isInteger(+m.vib)&&+m.vib>0){o.vib=Math.min(64,+m.vib);const vw=Math.round(+m.vw*100)/100;if(Number.isFinite(vw)&&vw)o.vw=Math.max(-60,Math.min(20,vw));const vs=Math.round(+m.vs*100)/100;if(Number.isFinite(vs)&&vs)o.vs=Math.max(-10,Math.min(60,vs))}
   if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw));const cs=Math.round(+m.cs*100)/100;if(Number.isFinite(cs)&&cs)o.cs=Math.max(-10,Math.min(60,cs))}
   if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
+  if(Array.isArray(m.tq)){const tq=[...new Set(m.tq.map(String).filter(k=>{const [b,h]=k.split(':').map(Number);return divs[b]===12&&(h===0||h===1)}))];if(tq.length)o.tq=tq}
   {const ga=Math.round(+m.gapA*10)/10;if(Number.isFinite(ga)&&ga&&ga>=-6&&ga<=40)o.gapA=ga}
   if(Array.isArray(m.texts)){const tx=m.texts.map(x=>{const t=str(x&&x.t).slice(0,80),xb=+x.x;if(!t||!Number.isFinite(xb))return null;const q={t,x:Math.max(0,Math.min(ti.beats-1e-6,xb))};const of=cleanOff(x.off);if(of)q.off=of;return q}).filter(Boolean);if(tx.length)o.texts=tx}
   {const v=typeof m.volta==='string'?{t:m.volta,n:+m.voltaLen||1}:m.volta;
@@ -722,6 +723,20 @@ function voiceLayout(m,v,ti){
     const want=new Map();for(const [s,c] of chords){const du=Math.max(0,...c.map(n=>n.du||0));if(du)want.set(s,du/ti.bl)}
     const ends=[];for(const [s,f] of want){const e=s/div+f;if(e<1-1e-9)ends.push(e)}
     const bnd=(m.rb||[]).filter(x=>x>b+1e-9&&x<b+1-1e-9).map(x=>x-b);ends.push(...bnd);
+    // a mixed beat (12 slots): each half is either two 16ths / an 8th, or a 16th-note triplet with a "3" over it
+    if(div===12&&!ti.compound&&ti.bf===0){
+      const items=[],subs=[],note=(s,D,n,c)=>items.push({k:'n',b,s,D,n,dur:durOf(ti,D,n),notes:c,want:0}),rest=(s,D,n)=>items.push({k:'r',b,s,D,n,dur:durOf(ti,D,n)});
+      for(const h of [0,1]){
+        const keys=[...chords.keys()].filter(x=>x>=6*h&&x<6*h+6);
+        if(!(m.tq||[]).includes(`${b}:${h}`)&&!keys.some(x=>x%3!==0)){const a0=chords.get(6*h),a1=chords.get(6*h+3);
+          if(!a0&&!a1)rest(2*h,4,2);else if(a0&&!a1)note(2*h,4,2,a0);else{if(a0)note(2*h,4,1,a0);else rest(2*h,4,1);note(2*h+1,4,1,a1)}}
+        else{const slot=[[],[],[]];for(const x of keys)slot[Math.min(2,Math.round((x-6*h)/2))].push(...chords.get(x));
+          slot.forEach((c,k)=>{const d=durOf(ti,6,1);d.tup=3;if(c.length)items.push({k:'n',b,s:3*h+k,D:6,n:1,dur:d,notes:c,want:0});else items.push({k:'r',b,s:3*h+k,D:6,n:1,dur:d})});
+          subs.push(h/2)}
+      }
+      // keep the note objects' slot so selection and editing find them
+      beats.push({b,D:12,items,tup:0,subs});continue;
+    }
     let D=div;const tupB=!ti.compound&&(div===3||div===6||(div===8&&ti.bf===0)); // a triplet / sextuplet beat keeps its grid
     if((ns.length||bnd.length)&&!tupB){let found=false;
       for(const a of ti.render){if(ns.every(n=>(n.s*a)%div===0)&&ends.every(e=>isInt(e*a))){D=a;found=true;break}}
@@ -802,7 +817,7 @@ function voiceLayout(m,v,ti){
   }
   close();
   // 8th notes are always beamed in pairs (one beat), never four together
-  return {mrest:false,items:out,groups,tuplets:beats.filter(bt=>bt.tup&&!consumed.has(bt.b)).map(bt=>({b:bt.b,D:bt.tup}))};
+  return {mrest:false,items:out,groups,tuplets:[...beats.filter(bt=>bt.tup&&!consumed.has(bt.b)).map(bt=>({b:bt.b,D:bt.tup})),...beats.flatMap(bt=>(bt.subs||[]).map(lo=>({b:bt.b,D:3,lo})))]};
 }
 
 /* ---------- layout ---------- */
@@ -1433,10 +1448,10 @@ function drawBeam(g,up){
   return o;
 }
 function drawTuplet(tp,vl,up,top){
-  const its=vl.items.filter(i=>i.b===tp.b&&!i.span);if(!its.length)return '';
+  const its=vl.items.filter(i=>i.b===tp.b&&!i.span&&(tp.lo==null||(i.s/i.D>=tp.lo-1e-9&&i.s/i.D<tp.lo+0.5-1e-9)));if(!its.length)return '';
   const ch=tp.D===6?G.tup6:G.tup3;
   const g=vl.groups.find(gr=>its.every(i=>i.bt||gr.includes(i)));
-  if(g){const xm=(g[0].stemX+g[g.length-1].stemX)/2-0.45;return `<text class="mu sm" x="${r(xm)}" y="${r(g.up?g.yB-0.5:g.yB+1.75)}">${ch}</text>`}
+  if(g){const a=tp.lo!=null?its:g,xm=(a[0].stemX+a[a.length-1].stemX)/2-0.45;return `<text class="mu sm" x="${r(xm)}" y="${r(g.up?g.yB-0.5:g.yB+1.75)}">${ch}</text>`}
   const x1=its[0].x,x2=its[its.length-1].x+HEAD_W,xm=(x1+x2)/2;
   const tips=its.filter(i=>i.k==='n').map(i=>i.tip);
   const yb=up?Math.min(top-1,...tips)-0.9:Math.max(top+5,...tips)+0.9,hk=up?0.5:-0.5;
@@ -1635,7 +1650,7 @@ function spanData(g0,g1){
   const beats=[],rb=[],rdx=[],lyrics=[];
   score.measures.forEach((m,mi)=>{
     const ms=mStart(mi),me=ms+mTicks(mi);if(me<=g0||ms>=g1)return;const ti=tiAt(mi),bt=Math.round(ti.bl*TPQ);
-    for(let b=0;b<ti.beats;b++){const bg=ms+b*bt;if(bg+bt<=g0||bg>=g1)continue;beats.push({o:bg-g0,len:bt,div:m.divs[b],full:bg>=g0&&bg+bt<=g1})}
+    for(let b=0;b<ti.beats;b++){const bg=ms+b*bt;if(bg+bt<=g0||bg>=g1)continue;beats.push({o:bg-g0,len:bt,div:m.divs[b],full:bg>=g0&&bg+bt<=g1,tq:(m.tq||[]).filter(k=>k.startsWith(b+':')).map(k=>+k.split(':')[1])})}
     for(const x of (m.rb||[])){const g=gAt(mi,x);if(g>g0&&g<g1)rb.push(g-g0)}
     if(m.rdx)for(const [k,v] of Object.entries(m.rdx)){const g=gAt(mi,+k);if(g>=g0&&g<g1)rdx.push({o:g-g0,v})}
     for(const l of m.lyrics){const g=gAt(mi,l.b+l.s/l.d);if(g>=g0&&g<g1)lyrics.push({o:g-g0,t:l.t,...(l.dx?{dx:l.dx}:{})})}
@@ -1671,8 +1686,8 @@ function pasteSpan(clip){
     for(const e of (clip.beats||[])){
       const T=G0+e.o;if(T<0)continue;const q=tickPos(T);if(q.rem!==0||q.bt!==e.len)continue;
       const m=score.measures[q.mi];if(!m||!q.ti.divs.includes(e.div))continue;
-      if(e.full)m.divs[q.b]=e.div;
-      else{const c=lcm(m.divs[q.b],e.div);if(q.ti.divs.includes(c))convertBeat(m,q.b,c)}
+      if(e.full){m.divs[q.b]=e.div;m.tq=(m.tq||[]).filter(k=>!k.startsWith(q.b+':'));if(e.div===12&&e.tq&&e.tq.length)m.tq.push(...e.tq.map(h=>`${q.b}:${h}`));if(!m.tq.length)delete m.tq}
+      else{const c=lcm(m.divs[q.b],e.div);if(q.ti.divs.includes(c)||(c===12&&q.ti.bf===0&&!q.ti.compound))convertBeat(m,q.b,c)}
     }
     for(const c of clip.notes){
       if(!INST[c.i])continue;
@@ -1782,6 +1797,27 @@ function beamDrag(e,svg,bg){
   const upf=()=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
     beamOv=null;if(moved&&v!==base){setStemLen(key,v);toast(`세로선 길이 ${v>0?'+':''}${v} (기본 0)`)}else{select({type:'note',m:f.m,id:key})}};
   window.addEventListener('pointermove',mv);window.addEventListener('pointerup',upf);window.addEventListener('pointercancel',upf);
+}
+// the selected 8th (note or rest) → a 16th-note triplet in that half of the beat; the other half stays as written
+function halfTriplet(mi,b,sn){
+  const m=score.measures[mi],v=sn?vOf(sn.n.i):(sel.v||1),vl=L.VL&&L.VL[mi]&&L.VL[mi][v-1];if(!vl||vl.mrest)return false;
+  const t=sn?sn.n.s/m.divs[b]:sel.t-b;
+  const it=vl.items.find(i=>i.b===b&&Math.abs(i.s/i.D-t)<1e-6&&(sn?i.k==='n':i.k==='r'));if(!it)return false;
+  const len=it.n/it.D;if(!((Math.abs(t)<1e-6&&Math.abs(len-0.5)<1e-6)||Math.abs(t-0.5)<1e-6))return false;
+  const h=Math.round(t*2),old=m.divs[b];let moved=false;
+  const wasTrip=hh=>old===12&&(m.tq||[]).includes(`${b}:${hh}`);
+  commit(()=>{
+    m.notes=m.notes.filter(n=>{if(n.b!==b)return true;const pos=n.s/old;
+      if(pos>=h/2-1e-9&&pos<h/2+0.5-1e-9){if(Math.abs(pos-h/2)>1e-9||!sn)return false;n.s=6*h;return true}
+      const x=pos*12;if(old===12){n.s=Math.round(x);return true}const r2=Math.round(x/3)*3;if(Math.abs(x-r2)>1e-6)moved=true;n.s=Math.min(11,r2);return true});
+    m.divs[b]=12;m.simile=false;m.tq=[...new Set([...(m.tq||[]).filter(k=>!k.startsWith(b+':')||k===`${b}:${1-h}`&&wasTrip(1-h)),`${b}:${h}`])];
+    if(m.rb){m.rb=m.rb.filter(x=>!(x>b+1e-9&&x<b+1-1e-9));if(!m.rb.length)delete m.rb}
+    if(m.rdx)delete m.rdx[b];
+    const first=sn&&m.notes.find(n=>n.b===b&&n.s===6*h&&n.id===sn.n.id);
+    sel=first?{type:'note',m:mi,id:first.id}:{type:'rest',m:mi,t:b+h/2,v};
+  });
+  toast('그 8분 자리를 16분 셋잇단(3)으로 바꿨어요 · 악기 키로 차례로 채우세요'+(moved?' (다른 반쪽 음표 일부를 16분 칸에 맞췄어요)':''));
+  return true;
 }
 function stampAt(mi,b,k,u,inst){
   hear(inst);
@@ -2483,7 +2519,8 @@ document.addEventListener('keydown',e=>{
   if(ctrl&&!e.shiftKey&&(digit===3||digit===6||digit===8)&&!inputMode&&sel&&(sel.type==='note'||sel.type==='rest')){
     e.preventDefault();const sn=getSelNote();const mi=sn?sn.m:sel.m,b=sn?sn.n.b:Math.floor(sel.t+1e-9),D=digit;const ti=tiAt(mi);
     if(ti.compound||ti.bf!==0||!ti.divs.includes(D)){toast('이 박자에서는 이렇게 바꿀 수 없어요 (x/4 박자에서만)');return}
-    commit(()=>{const m=score.measures[mi];m.notes=m.notes.filter(n=>n.b!==b);m.divs[b]=D;
+    if(D===3&&halfTriplet(mi,b,sn))return;
+    commit(()=>{const m=score.measures[mi];m.notes=m.notes.filter(n=>n.b!==b);m.divs[b]=D;if(m.tq){m.tq=m.tq.filter(k=>!k.startsWith(b+':'));if(!m.tq.length)delete m.tq}
       if(m.rb){m.rb=m.rb.filter(x=>!(x>b+1e-9&&x<b+1-1e-9));if(!m.rb.length)delete m.rb}
       if(m.rdx)delete m.rdx[b];sel={type:'rest',m:mi,t:b,v:1}});
     toast({3:'셋잇단으로 바꿨어요 · 8분쉼표에 악기 키로 차례로 채우세요',6:'6연음으로 바꿨어요 · 16분쉼표에 악기 키로 차례로 채우세요',8:'32분음표 8칸으로 바꿨어요 · 쉼표에 악기 키로 차례로 채우세요'}[D]);return;
