@@ -734,9 +734,8 @@ function voiceLayout(m,v,ti){
           slot.forEach((c,k)=>{const d=durOf(ti,6,1);d.tup=3;if(c.length)items.push({k:'n',b,s:3*h+k,D:6,n:1,dur:d,notes:c,want:0});else items.push({k:'r',b,s:3*h+k,D:6,n:1,dur:d})});
           subs.push(h/2)}
       }
-      // where each one is drawn: each group packed a little, with a clear gap between the 16ths and the triplet
-      for(const it of items){const h=it.s/it.D<0.5-1e-9?0:1;
-        if(it.D===4)it.vf=h/2+(it.s-2*h)*0.18;else it.vf=h/2+(h?0.07:0)+(it.s-3*h)*0.15}
+      // the lower (16th) beam breaks between the 16ths and the triplet; the top beam runs through
+      if(subs.length){const first2=items.find(it=>it.s/it.D>=0.5-1e-9);if(first2)first2.bk=true}
       beats.push({b,D:12,items,tup:0,subs});continue;
     }
     let D=div;const tupB=!ti.compound&&(div===3||div===6||(div===8&&ti.bf===0)); // a triplet / sextuplet beat keeps its grid
@@ -864,8 +863,7 @@ function natural(mi,vl1,vl2,ti){
   // every beat gets the same width so the measure reads in equal quarters
   if(!m.simile){const mx=Math.max(...beatW);beatW.fill(mx);
     // a 6- or 8-note beat gets a bit more room than the plain beats around it so it stays readable
-    // a mixed beat (16ths + a 16th-note triplet) gets more still, so both groups and the gap between them show
-    if(!ti.compound)m.divs.forEach((d,b)=>{if(d>=6&&b<beatW.length)beatW[b]=mx*(d===12?1.75:1.45)})}
+    if(!ti.compound)m.divs.forEach((d,b)=>{if(d>=6&&b<beatW.length)beatW[b]=mx*1.45})}
   return {lead,trail,beatW,pre,tsLead,w:lead+trail+beatW.reduce((a,c)=>a+c,0)};
 }
 function headerH(){return 1.5+txs('title').sz*1.2+(score.subtitle?txs('sub').sz*1.95:0)+txs('cmp').sz*3.3+1.0}
@@ -1443,7 +1441,7 @@ function drawBeam(g,up){
     const y=up?g.yB+(Lv-1)*0.75:g.yB-h-(Lv-1)*0.75;
     for(let k=0;k<g.length;k++){
       if(g[k].dur.flags<Lv)continue;
-      const nx=k+1<g.length&&g[k+1].dur.flags>=Lv,pv=k>0&&g[k-1].dur.flags>=Lv;
+      const nx=k+1<g.length&&g[k+1].dur.flags>=Lv&&!g[k+1].bk,pv=k>0&&g[k-1].dur.flags>=Lv&&!g[k].bk;
       if(nx)o+=bar(xs[k]-STEM_W/2,xs[k+1]+STEM_W/2,y);
       else if(!pv){if(k===0)o+=bar(xs[k]-STEM_W/2,xs[k]+1.15,y);else o+=bar(xs[k]-1.15,xs[k]+STEM_W/2,y)}
     }
