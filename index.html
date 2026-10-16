@@ -736,7 +736,7 @@ function voiceLayout(m,v,ti){
       }
       // where each one is drawn: each group packed a little, with a clear gap between the 16ths and the triplet
       for(const it of items){const h=it.s/it.D<0.5-1e-9?0:1;
-        if(it.D===4)it.vf=h/2+(it.s-2*h)*0.2;else it.vf=h/2+(h?0.03:0)+(it.s-3*h)*0.16}
+        if(it.D===4)it.vf=h/2+(it.s-2*h)*0.18;else it.vf=h/2+(h?0.07:0)+(it.s-3*h)*0.15}
       beats.push({b,D:12,items,tup:0,subs});continue;
     }
     let D=div;const tupB=!ti.compound&&(div===3||div===6||(div===8&&ti.bf===0)); // a triplet / sextuplet beat keeps its grid
@@ -1836,6 +1836,15 @@ function stampAt(mi,b,k,u,inst){
     if(sel&&sel.type==='measure'&&sel.pos){const d=m.divs[b];sel.pos={b,k:s0,u:d}}
   });
 }
+// a key on a rest: in a triplet / sextuplet / 32nd-slot beat fill it slot by slot; anywhere else put the note in
+// with the chosen note length (keys 1~7) and move on by that length, so pressing keys again writes them in order
+function typeOnRest(inst,shift){
+  const mi=sel.m,m=score.measures[mi];if(!m)return;const b=Math.min(m.divs.length-1,Math.floor(sel.t+1e-9)),div=m.divs[b],ti=tiAt(mi);
+  const vl=L.VL&&L.VL[mi]&&L.VL[mi][(sel.v||1)-1],it=vl&&vl.items&&vl.items.find(i=>i.k==='r'&&Math.abs(i.b+i.s/i.D-sel.t)<1e-6);
+  const slotWise=ti.compound||div===3||div===6||(div===8&&ti.bf===0)||(div===12&&it&&it.D===6);
+  if(slotWise||shift){stampOnRest(inst,!shift);return}
+  sel={type:'measure',m:mi,pos:posFromBeats(mi,sel.t)};enterAtCursor(inst);
+}
 function stampOnRest(inst,advance){
   hear(inst);
   const mi=sel.m,p=posFromBeats(mi,sel.t),b=p.b;let nn=null;
@@ -2589,7 +2598,7 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();inputInst=inst.id;
     if(inputMode){if(e.shiftKey)addToLastChord(inst.id);else enterAtCursor(inst.id);return}
     if(sn){if(e.shiftKey)addToChord(sn.n.id,inst.id);else replaceNote(sn.n.id,inst.id);return}
-    if(sel&&sel.type==='rest'){stampOnRest(inst.id,!e.shiftKey);return}
+    if(sel&&sel.type==='rest'){typeOnRest(inst.id,e.shiftKey);return}
     // a measure, a range or nothing selected: start typing at the beginning of that measure
     if(sel&&sel.type==='range')sel={type:'measure',m:sel.a};
     if(!(sel&&sel.type==='measure'&&sel.pos))inputCursor(true);
@@ -2657,7 +2666,7 @@ $('#unitBtns').onclick=e=>{
 $('#pads').onclick=e=>{const ab=e.target.closest('[data-art]');if(ab){const an=artNote();if(!an){toast('음표를 먼저 누른 뒤 눌러 주세요');return}toggleArt(an.n.id,ab.dataset.art);return}
   const b=e.target.closest('[data-inst]');if(!b)return;inputInst=b.dataset.inst;const sn=getSelNote();
   if(sn){if(e.shiftKey)addToChord(sn.n.id,inputInst);else replaceNote(sn.n.id,inputInst)}
-  else if(sel&&sel.type==='rest')stampOnRest(inputInst,!e.shiftKey);
+  else if(sel&&sel.type==='rest')typeOnRest(inputInst,e.shiftKey);
   else{if(sel&&sel.type==='range')sel={type:'measure',m:sel.a};if(!(sel&&sel.type==='measure'&&sel.pos))inputCursor(true);if(e.shiftKey&&lastEntered&&findNote(lastEntered.id))addToLastChord(inputInst);else enterAtCursor(inputInst)}};
 $('#percToggle').onclick=()=>{const p=$('#pads');p.hidden=!p.hidden;$('#percToggle').textContent=p.hidden?'펼치기':'접기';$('#percToggle').setAttribute('aria-expanded',!p.hidden);$('#percHint').hidden=p.hidden};
 $('#tbAccent').onclick=()=>{const sn=getSelNote();if(sn)toggleArt(sn.n.id,'accent')};
