@@ -1938,8 +1938,26 @@ function setRestDur(mi,t,durQ){
     sel={type:'rest',m:mi,t,v};
   });
 }
+// key 5 on a note or rest in x/4 time: that beat starts over as one quarter (the note on the beat stays, the rest of the beat is cleared)
+function resetBeat(mi,b){
+  const m=score.measures[mi],ti=tiAt(mi);if(!m||ti.compound||ti.bf!==0)return false;
+  let keep=null;
+  commit(()=>{
+    m.notes=m.notes.filter(n=>n.b!==b||n.s===0);m.notes.forEach(n=>{if(n.b===b){delete n.du;delete n.dx}});
+    m.divs[b]=defDiv(ti);m.simile=false;
+    if(m.rb){m.rb=m.rb.filter(x=>!(x>b+1e-9&&x<b+1-1e-9));if(!m.rb.length)delete m.rb}
+    if(m.rdx){delete m.rdx[tKey(b)];for(const k of Object.keys(m.rdx))if(+k>b&&+k<b+1)delete m.rdx[k];if(!Object.keys(m.rdx).length)delete m.rdx}
+    if(m.tq){m.tq=m.tq.filter(k=>!k.startsWith(b+':'));if(!m.tq.length)delete m.tq}
+    keep=m.notes.find(n=>n.b===b&&n.s===0);
+    sel=keep?{type:'note',m:mi,id:keep.id}:{type:'rest',m:mi,t:b,v:1};
+  });
+  toast(`${b+1}박을 4분음표 하나로 되돌렸어요 · 다시 찍으면 돼요`);return true;
+}
 function setDuration(q){
   inputDur=q;inputDot=false;
+  // 5 (quarter) on a note or rest: start that beat over
+  if(q===1&&!inputMode&&sel&&(sel.type==='note'||sel.type==='rest')){const sn=getSelNote(),mi=sn?sn.m:sel.m,b=sn?sn.n.b:Math.floor(sel.t+1e-9),ti=tiAt(mi);
+    if(!ti.compound&&ti.bf===0&&resetBeat(mi,b))return}
   if(sel&&sel.type==='rest'&&!inputMode){setRestDur(sel.m,sel.t,curDurQ());return}
   const sn=getSelNote();
   if(sn&&!inputMode)setChordDur(sn.m,sn.n.id,curDurQ());else renderChrome();
@@ -2008,7 +2026,10 @@ function deleteNote(id){
     const nb=list[idx+1]&&list[idx+1].mi===f.m?list[idx+1]:list[idx-1]&&list[idx-1].mi===f.m?list[idx-1]:null;
     sel=nb?{type:'note',m:nb.mi,id:nb.n.id}:{type:'measure',m:f.m}});
 }
-function clearMeasures(ms){commit(()=>{let ch=false;for(const mi of ms){const m=score.measures[mi];if(m.notes.length||m.simile||m.lyrics.length)ch=true;m.notes=[];m.lyrics=[];m.simile=false}return ch?undefined:false})}
+// empty measures back to a whole rest: notes, words and every rhythm setting (beat grids, rest splits, nudges, triplet halves)
+function clearMeasures(ms){commit(()=>{let ch=false;for(const mi of ms){const m=score.measures[mi];if(!m)continue;const ti=tiAt(mi);
+  if(m.notes.length||m.simile||m.lyrics.length||m.rb||m.rdx||m.tq)ch=true;m.notes=[];m.lyrics=[];m.simile=false;
+  delete m.rb;delete m.rdx;delete m.tq;m.divs=Array(ti.beats).fill(defDiv(ti))}return ch?undefined:false})}
 function cloneMeasure(m){const c=JSON.parse(JSON.stringify(m));c.notes.forEach(n=>n.id=nid());delete c.ts;delete c.pageBreak;delete c.lineBreak;delete c.gapA;return c}
 function insertMeasure(at,copyFrom){
   commit(()=>{const ti=tiAt(Math.max(0,at-1));const m=copyFrom!=null?cloneMeasure(score.measures[copyFrom]):newMeasure(ti);score.measures.splice(at,0,m);sel={type:'measure',m:at}},{scroll:true});
