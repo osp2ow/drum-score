@@ -734,7 +734,9 @@ function voiceLayout(m,v,ti){
           slot.forEach((c,k)=>{const d=durOf(ti,6,1);d.tup=3;if(c.length)items.push({k:'n',b,s:3*h+k,D:6,n:1,dur:d,notes:c,want:0});else items.push({k:'r',b,s:3*h+k,D:6,n:1,dur:d})});
           subs.push(h/2)}
       }
-      // keep the note objects' slot so selection and editing find them
+      // where each one is drawn: each group packed a little, with a clear gap between the 16ths and the triplet
+      for(const it of items){const h=it.s/it.D<0.5-1e-9?0:1;
+        if(it.D===4)it.vf=h/2+(it.s-2*h)*0.2;else it.vf=h/2+(h?0.03:0)+(it.s-3*h)*0.16}
       beats.push({b,D:12,items,tup:0,subs});continue;
     }
     let D=div;const tupB=!ti.compound&&(div===3||div===6||(div===8&&ti.bf===0)); // a triplet / sextuplet beat keeps its grid
@@ -847,8 +849,8 @@ function natural(mi,vl1,vl2,ti){
     const key=t=>Math.round(t*1e4)/1e4;
     const add=(t,n)=>{const k=key(t);need.set(k,Math.max(need.get(k)||0,n))};
     for(const vl of [vl1,vl2]) if(!vl.mrest) for(const it of vl.items) if(it.b===b){
-      add(it.s/it.D,1.8+(it.dur.dots?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.ar)?0.9:0));
-      if(it.k==='n'){const g=Math.max(0,...it.notes.map(graceW));if(g){const k=key(it.s/it.D);gw.set(k,Math.max(gw.get(k)||0,g))}}
+      add(it.vf!=null?it.vf:it.s/it.D,1.8+(it.dur.dots?0.55:0)+(it.k==='n'&&it.notes.some(n=>n.ar)?0.9:0));
+      if(it.k==='n'){const g=Math.max(0,...it.notes.map(graceW));if(g){const k=key(it.vf!=null?it.vf:it.s/it.D);gw.set(k,Math.max(gw.get(k)||0,g))}}
     }
     for(const l of m.lyrics) if(l.b===b) add(l.s/l.d,lyrW(l.t));
     if(!need.size)add(0,1.8);
@@ -862,7 +864,8 @@ function natural(mi,vl1,vl2,ti){
   // every beat gets the same width so the measure reads in equal quarters
   if(!m.simile){const mx=Math.max(...beatW);beatW.fill(mx);
     // a 6- or 8-note beat gets a bit more room than the plain beats around it so it stays readable
-    if(!ti.compound)m.divs.forEach((d,b)=>{if(d>=6&&b<beatW.length)beatW[b]=mx*1.45})}
+    // a mixed beat (16ths + a 16th-note triplet) gets more still, so both groups and the gap between them show
+    if(!ti.compound)m.divs.forEach((d,b)=>{if(d>=6&&b<beatW.length)beatW[b]=mx*(d===12?1.75:1.45)})}
   return {lead,trail,beatW,pre,tsLead,w:lead+trail+beatW.reduce((a,c)=>a+c,0)};
 }
 function headerH(){return 1.5+txs('title').sz*1.2+(score.subtitle?txs('sub').sz*1.95:0)+txs('cmp').sz*3.3+1.0}
@@ -1269,7 +1272,7 @@ function drawVoice(vl,v,other,ml,top,mi,exp){
   const twoV=!other.mrest;
   const selId=!exp&&sel&&sel.type==='note'&&sel.m===mi?sel.id:null;
   for(const it of vl.items){
-    it.x=mtx(ml,it.b,it.s/it.D)+itemDx(it,mi,v);
+    it.x=mtx(ml,it.b,it.vf!=null?it.vf:it.s/it.D)+itemDx(it,mi,v);
     if(it.k!=='n')continue;
     const ys=it.notes.map(n=>yStep(top,INST[n.i].step));
     it.yTop=Math.min(...ys);it.yBot=Math.max(...ys);
