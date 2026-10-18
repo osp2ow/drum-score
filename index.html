@@ -359,8 +359,8 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
         <div class="dockbody" id="dock-cap" hidden>
           <div class="drop" id="dropZone" tabindex="0" aria-label="캡처 이미지 붙여넣기 영역">
             <div class="drop-title">캡처한 드럼 악보 붙여넣기</div>
-            <p>캡처 후 <kbd>Ctrl</kbd>+<kbd>V</kbd> 하거나 이미지를 끌어다 놓으면, 바로 악보로 바꿔서 맨 뒤에 이어 붙여요.</p>
-            <button class="btn" id="pickImg">이미지 파일 선택</button>
+            <p>캡처 후 <kbd>Ctrl</kbd>+<kbd>V</kbd> 하거나 이미지를 끌어다 놓으면, 바로 악보로 바꿔서 맨 뒤에 이어 붙여요. 악보가 나오는 <b>영상 파일(mp4)</b>을 넣으면 영상 순서대로 악보 줄을 찾아 차례로 넣어요.</p>
+            <button class="btn" id="pickImg">이미지·영상 파일 선택</button>
             <label class="chk"><input type="checkbox" id="capShuffle"> 셔플 곡 — 8분음표를 셔플(셋잇단 1·3번째)로 넣기</label>
           </div>
           <div class="psec" id="subBox" hidden>
@@ -479,7 +479,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
   </section>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<input type="file" id="fileImg" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+<input type="file" id="fileImg" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime,video/*" multiple hidden>
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 
 <script>
@@ -3257,10 +3257,65 @@ async function splitScoreImage(file){
     return out.length?out:null;
   }catch(e){return null}
 }
+/* ---------- video: walk through a performance video and capture each new line of the score, in order ---------- */
+const videoQueue=[];let videoBusy=false;
+async function runVideos(){if(videoBusy)return;videoBusy=true;try{while(videoQueue.length)await analyzeVideo(videoQueue.shift())}finally{videoBusy=false}}
+// the 5-line staves in a frame (same rules as the capture cutter)
+function findStaves(dk,W,H){
+  const rows=[];for(let y=0;y<H;y++){let n=0;const o=y*W;for(let x=0;x<W;x++)n+=dk[o+x];rows.push(n/W)}
+  const lines=[];for(let y=0;y<H;y++){if(rows[y]<0.42)continue;let e=y;while(e+1<H&&rows[e+1]>=0.42)e++;lines.push((y+e)/2);y=e}
+  const st=[];for(let i=0;i+4<lines.length;){const g=[1,2,3,4].map(k=>lines[i+k]-lines[i+k-1]),avg=g.reduce((a,b)=>a+b)/4;
+    if(avg>=3&&g.every(v=>Math.abs(v-avg)<=Math.max(1.6,avg*0.28))){st.push({y0:lines[i],y4:lines[i+4],sp:avg});i+=5}else i++}
+  return st;
+}
+function darkMap(px,W,H){const dk=new Uint8Array(W*H);for(let i=0;i<W*H;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2];dk[i]=(Math.max(r,g,b)<120&&Math.abs(r-g)<60&&Math.abs(g-b)<60)?1:0}return dk}
+// a coarse black/white fingerprint of one line (measure number, notes and words included, coloured playheads ignored)
+function lineSig(dk,W,y0,y1){const GW=160,GH=36,h=y1-y0,sig=new Uint8Array(GW*GH);
+  for(let gy=0;gy<GH;gy++)for(let gx=0;gx<GW;gx++){const xa=Math.floor(gx*W/GW),xb=Math.floor((gx+1)*W/GW),ya=y0+Math.floor(gy*h/GH),yb=y0+Math.floor((gy+1)*h/GH);let n=0,t=0;
+    for(let y=ya;y<yb;y+=1)for(let x=xa;x<xb;x+=2){n+=dk[y*W+x];t++}sig[gy*GW+gx]=t&&n/t>0.12?1:0}
+  return sig}
+// sharp fingerprint of the places where repeated grooves still differ: the measure number and the words under the line
+function detailSig(dk,W,H,st){const out=[];const reg=(x0,x1,y0,y1)=>{x0=Math.max(0,Math.round(x0));x1=Math.min(W,Math.round(x1));y0=Math.max(0,Math.round(y0));y1=Math.min(H,Math.round(y1));
+    for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)out.push(dk[y*W+x])};
+  reg(0,st.sp*12,st.y0-4.5*st.sp,st.y0-0.4*st.sp);reg(0,W,st.y4+1.6*st.sp,st.y4+6*st.sp);return Uint8Array.from(out)}
+function sigDiff(a,b){let d=0,on=0;for(let i=0;i<a.length;i++){if(a[i]!==b[i])d++;if(a[i]||b[i])on++}return on?d/on:0}
+async function analyzeVideo(file){
+  const url=URL.createObjectURL(file),v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
+  const job={id:++jobSeq,file:null,url:null,status:'video',msg:'영상 여는 중…',open:false};queue.push(job);if(view!=='score')showView('score');showDock('cap');renderQueue();
+  const done=msg=>{job.status='ok';job.msg=msg;renderQueue();URL.revokeObjectURL(url)};
+  try{await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=()=>rej(0);setTimeout(()=>rej(0),20000)})}
+  catch(e){job.status='err';job.msg='이 영상은 열 수 없어요. mp4(H.264) 파일로 넣어 주세요';renderQueue();URL.revokeObjectURL(url);return}
+  const dur=v.duration;if(!isFinite(dur)||dur<=0){job.status='err';job.msg='영상 길이를 알 수 없어요';renderQueue();return}
+  const W=Math.min(1600,v.videoWidth||1280),H=Math.round((v.videoHeight||720)*W/(v.videoWidth||1280));
+  const c=document.createElement('canvas');c.width=W;c.height=H;const ctx=c.getContext('2d',{willReadFrequently:true});
+  const seek=t=>new Promise(res=>{let ok=false;const f=()=>{if(ok)return;ok=true;v.removeEventListener('seeked',f);res()};v.addEventListener('seeked',f);v.currentTime=t;setTimeout(f,3000)});
+  const accepted=[];let prev=[],lines=0;const step=0.5;
+  for(let t=0.1;t<dur;t+=step){
+    await seek(t);ctx.drawImage(v,0,0,W,H);
+    const px=ctx.getImageData(0,0,W,H).data,dk=darkMap(px,W,H),staves=findStaves(dk,W,H),now=[];
+    staves.forEach((st,si)=>{
+      const top=Math.round(Math.max(si?((staves[si-1].y4+st.y0)/2):0,st.y0-8*st.sp)),bot=Math.round(Math.min(si<staves.length-1?((st.y4+staves[si+1].y0)/2):H,st.y4+7.5*st.sp));
+      const sig={g:lineSig(dk,W,Math.max(0,Math.round(st.y0-4*st.sp)),Math.min(H,Math.round(st.y4+6*st.sp))),d:detailSig(dk,W,H,st)};now.push(sig);
+      const same=(a,b)=>a.g.length===b.g.length&&sigDiff(a.g,b.g)<0.03&&a.d.length===b.d.length&&sigDiff(a.d,b.d)<0.07;
+      // only a line that has settled (same as half a second ago) and that is not one of the lines just taken
+      // (compared with as many lines as the video shows at once, so a groove that comes back later is kept)
+      if(!prev.some(p=>same(p,sig)))return;
+      if(accepted.slice(-Math.max(1,staves.length)).some(a=>same(a,sig)))return;
+      accepted.push(sig);lines++;
+      const cc=document.createElement('canvas');cc.width=W;cc.height=bot-top;cc.getContext('2d').drawImage(c,0,top,W,bot-top,0,0,W,bot-top);
+      cc.toBlob(b=>{if(b){const f=new File([b],`영상 ${Math.floor(t/60)}분${String(Math.floor(t%60)).padStart(2,'0')}초.png`,{type:'image/png'});enqueue([f])}},'image/png');
+    });
+    prev=now;
+    if(Math.round(t/step)%6===0){job.msg=`영상에서 악보 줄 찾는 중 · ${Math.min(100,Math.round(t/dur*100))}% · 지금까지 ${lines}줄`;updateJobStat(job)}
+  }
+  done(lines?`영상 분석 끝 · 악보 ${lines}줄을 순서대로 변환해요`:'영상에서 악보 줄을 찾지 못했어요');
+}
 const queue=[];let busy=false,jobSeq=0;
 function enqueue(files){
+  const vids=[...files].filter(f=>f&&f.type&&f.type.startsWith('video/'));
+  for(const v of vids)videoQueue.push(v);if(vids.length)runVideos();
   const imgs=[...files].filter(f=>f&&f.type&&f.type.startsWith('image/'));
-  if(!imgs.length)return false;
+  if(!imgs.length)return vids.length>0;
   for(const f of imgs)queue.push({id:++jobSeq,file:f,url:URL.createObjectURL(f),status:'wait',msg:'',open:false});
   if(view!=='score')showView('score');
   showDock('cap');renderQueue();processQueue();
@@ -3448,6 +3503,7 @@ function applyImport(job,data){
   else{job.status='err';job.msg='읽은 마디가 비어 있어요. 다시 시도해 주세요.'}
 }
 function jobStatText(j){
+  if(j.status==='video')return `<span class="spin" aria-hidden="true"></span>${esc(j.msg)}`;
   if(j.status==='wait')return '대기 중';
   if(j.status==='run'){const s=Math.round((Date.now()-j.t0)/1000);return `<span class="spin" aria-hidden="true"></span>악보 읽는 중 · ${s}초${j.found?` · ${j.found}마디 인식`:''}`}
   return esc(j.msg);
@@ -3540,7 +3596,7 @@ let dragDepth=0;
 document.addEventListener('dragenter',e=>{if([...e.dataTransfer.types].includes('Files')){dragDepth++;$('#dropVeil').hidden=false}});
 document.addEventListener('dragleave',()=>{dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('#dropVeil').hidden=true});
 document.addEventListener('dragover',e=>{if([...e.dataTransfer.types].includes('Files'))e.preventDefault()});
-document.addEventListener('drop',e=>{dragDepth=0;$('#dropVeil').hidden=true;if(e.dataTransfer.files.length){e.preventDefault();if(!enqueue(e.dataTransfer.files))toast('이미지 파일만 넣을 수 있어요')}});
+document.addEventListener('drop',e=>{dragDepth=0;$('#dropVeil').hidden=true;if(e.dataTransfer.files.length){e.preventDefault();if(!enqueue(e.dataTransfer.files))toast('이미지나 영상 파일만 넣을 수 있어요')}});
 
 /* ---------- storage ---------- */
 let db=null,uidv=null,saveTimer=0,saving=false,dirty=false,dirtyMark=false,list=[],saveFails=0;
