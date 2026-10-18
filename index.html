@@ -3186,9 +3186,12 @@ async function apiText(job,blob,prompt){
   const j=await res.json();return (j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
 }
 // read a whole capture: cut it into 2-measure pieces when it can, read the pieces (two at a time), join them
+// repeat barlines come from the picture, not from the reading (the percussion clef at the start of a line looks like one)
+function fixRepeats(d,rep){if(!d||d.error||!Array.isArray(d.measures)||d.measures.length!==rep.length)return;
+  d.measures.forEach((m,i)=>{if(!m||typeof m!=='object')return;m.repeatStart=!!rep[i].rs;m.repeatEnd=!!rep[i].re})}
 async function readCapture(job,s){
   const parts=await splitScoreImage(job.file);
-  const list=parts?parts.map((q,i)=>({blob:q.blob,part:{k:i+1,total:parts.length,measures:q.measures}})):[{blob:job.file,part:null}];
+  const list=parts?parts.map((q,i)=>({blob:q.blob,rep:q.rep,part:{k:i+1,total:parts.length,measures:q.measures}})):[{blob:job.file,part:null}];
   job.pieces=list.length;const counts=list.map(()=>0);
   const onCount=i=>n=>{if(n!==counts[i]){counts[i]=n;const t=counts.reduce((a,b)=>a+b,0);if(t!==job.found){job.found=t;updateJobStat(job)}}};
   const out=new Array(list.length);let next=0;
@@ -3201,12 +3204,31 @@ async function readCapture(job,s){
         // tell it exactly what did not add up and let it look once more
         fb=`\n\nIMPORTANT: a first reading of this same image had these mistakes: ${pr.slice(0,8).join('; ')}. Look again at the beams of every stem in those measures (partial 16th beams especially) and answer again in full.`}
       catch(e){lastErr=e;if(e&&(e.name==='AbortError'||e.code==='cancelled'||e.code==='bad_key'||e.code==='not_granted'))throw e;if(best)break}}
+    if(best&&L2.rep)fixRepeats(best,L2.rep);
     out[i]=best;if(!out[i])throw lastErr||{code:'invalid_json'}}};
   await Promise.all([worker(),worker()]);
   const err=out.find(d=>d&&d.error);if(err&&out.every(d=>d&&(d.error||!(d.measures||[]).length)))return err;
   const merged={title:null,singer:null,timeSig:null,measures:[]};
   for(const d of out){if(!d||d.error)continue;merged.title=merged.title||d.title||null;merged.singer=merged.singer||d.singer||null;merged.timeSig=merged.timeSig||d.timeSig||null;if(Array.isArray(d.measures))merged.measures.push(...d.measures)}
   return merged;
+}
+// repeat barlines in one staff: a thick barline through the whole staff with two dots (in the 2nd and 3rd spaces) beside it.
+// The percussion clef (two short thick bars) and a plain barline have no dots, so they never count.
+function findRepeats(px,W,H,st){
+  const {y0,y4,sp}=st,D=(x,y)=>{x=Math.round(x);y=Math.round(y);if(x<0||x>=W||y<0||y>=H)return 0;const i=(y*W+x)*4;return Math.max(px[i],px[i+1],px[i+2])<150?1:0};
+  const Y0=Math.round(y0),Y4=Math.round(y4),span=Y4-Y0+1;
+  const full=x=>{let n=0;for(let y=Y0;y<=Y4;y++)n+=D(x,y);return n>=span*0.9};
+  const thick=[];for(let x=0;x<W;x++){if(!full(x))continue;let e=x;while(e+1<W&&full(e+1))e++;const w=e-x+1;if(w>=Math.max(3,sp*0.28)&&w<=sp*1.2)thick.push([x,e]);x=e}
+  // a dot: a small blob that leaves white between itself and the staff lines (a notehead fills the space, a stem runs on)
+  const dotAt=(x,yc)=>{for(const dy of [0,-1,1]){const y=Math.round(yc)+dy;if(!D(x,y))continue;
+      let u=0;while(u<sp&&D(x,y-u-1))u++;let d=0;while(d<sp&&D(x,y+d+1))d++;const h=u+d+1;if(h<sp*0.2||h>sp*0.72)continue;
+      const c=y+(d-u)/2;let l=0;while(l<sp&&D(x-l-1,c))l++;let r=0;while(r<sp&&D(x+r+1,c))r++;const w=l+r+1;if(w>=sp*0.2&&w<=sp*0.8)return true}return false};
+  const pair=x=>dotAt(x,y0+1.5*sp)&&dotAt(x,y0+2.5*sp);
+  const starts=[],ends=[];
+  for(const [a,e] of thick){
+    for(let x=e+1;x<=e+2.4*sp&&x<W;x++)if(pair(x)){starts.push(x);break}
+    for(let x=a-1;x>=a-2.4*sp&&x>=0;x--)if(pair(x)){ends.push(x);break}}
+  return {starts,ends};
 }
 /* ---------- capture: cut the image into small pieces (2 measures each) so every note is big enough to read ---------- */
 // finds the 5-line staves and the barlines; returns [{blob, measures, w, h}] or null when it can't tell
@@ -3239,12 +3261,18 @@ async function splitScoreImage(file){
       const bars=[];for(let x=0;x<W;x++){if(!isBar(x))continue;let e=x;while(e+1<W&&isBar(e+1))e++;if(e-x<=Math.max(2,sp*0.9))bars.push((x+e)/2);x=e}
       // measures run between barlines; the first starts at the left edge (clef, time signature)
       // where the staff itself ends (paper may continue after the final barline)
-      const ly=Math.round((y0+y4)/2-sp),lx=x=>dk[Math.round(y0)*W+x]||dk[Math.round(y4)*W+x];let xe=W-1;while(xe>0&&!lx(xe))xe--;
-      let bnd=[0,...bars.filter(x=>x>sp*5&&x<xe-sp*3),xe].filter((x,i,a)=>i===0||x-a[i-1]>sp*3);
+      const ly=Math.round((y0+y4)/2-sp),lx=x=>dk[Math.round(y0)*W+x]||dk[Math.round(y4)*W+x];let xe=W-1;while(xe>0&&!lx(xe))xe--;let xs=0;while(xs<xe&&!lx(xs))xs++;
+      // the clef and time signature sit in the first few spaces after the staff begins
+      let bnd=[0,...bars.filter(x=>x>xs+sp*5.5&&x<xe-sp*3),xe].filter((x,i,a)=>i===0||x-a[i-1]>sp*3);
+      // which measures really have repeat barlines (checked again after the reading)
+      const R=findRepeats(px,W,H,st);
+      // a start-repeat right after the clef and time signature opens the first measure; it doesn't end one
+      if(bnd.length>2&&bnd[1]<xs+sp*15&&bnd[1]<(bnd[2]-bnd[1])*0.6&&R.starts.some(x=>x>bnd[1]&&x<=bnd[1]+sp*2.6))bnd.splice(1,1);
       const ms=bnd.length-1;if(ms<1)return;
       const per=ms<=2?ms:2;
+      const repOf=j=>{const L=bnd[j],Rx=bnd[j+1],mid=(L+Rx)/2;return {rs:R.starts.some(x=>x>=L-sp&&x<mid),re:R.ends.some(x=>x>=mid&&x<=Rx+sp)}};
       for(let k=0;k<ms;k+=per){const n=Math.min(per,ms-k),x0=k===0?0:Math.max(0,Math.round(bnd[k]-sp*0.6)),x1=Math.min(W,Math.round(bnd[k+n]+sp*(k+n>=ms?1.5:0.6)));
-        parts.push({x0,x1,y0:top,y1:bot,measures:n,sp})}
+        parts.push({x0,x1,y0:top,y1:bot,measures:n,sp,rep:Array.from({length:n},(_,j)=>repOf(k+j))})}
     });
     if(parts.length<=1&&staves.length<=1&&parts[0]&&parts[0].measures<=2&&staves[0].sp>=14)return null; // already big enough
     const out=[];
@@ -3252,7 +3280,7 @@ async function splitScoreImage(file){
       const sc=Math.max(1,Math.min(3,18/q.sp)),w=q.x1-q.x0,h=q.y1-q.y0,cw=Math.round(w*sc),ch=Math.round(h*sc);
       const cc=document.createElement('canvas');cc.width=cw;cc.height=ch;const x2=cc.getContext('2d');x2.imageSmoothingQuality='high';
       x2.fillStyle='#fff';x2.fillRect(0,0,cw,ch);x2.drawImage(c,q.x0,q.y0,w,h,0,0,cw,ch);
-      out.push({blob:await new Promise(r=>cc.toBlob(r,'image/png')),measures:q.measures,w:cw,h:ch});
+      out.push({blob:await new Promise(r=>cc.toBlob(r,'image/png')),measures:q.measures,w:cw,h:ch,rep:q.rep});
     }
     return out.length?out:null;
   }catch(e){return null}
@@ -3348,7 +3376,7 @@ Rhythm: write each measure as its STEMS in time order, with the note value of ea
 - The values of each voice must add up to exactly one whole measure (4/4 = 4 quarters, 3/4 = 3, 6/8 = 6 eighths, 12/8 = 12 eighths). Check every measure; if a sum is off, look at the beams again.
 - In "n" a drum is its name ("hh") or, when it carries marks, an object like {"i":"hh","a":"accent"}. Optional marks: "h": "R" or "L" when a sticking letter is printed under that note (put it on one hand note of the chord); "a": "accent" for > or ^, "ghost" for a note in parentheses; "g": "flam" when one small grace note sits right before it, "drag" when two do (never list grace notes as items); "tr": 1 when a slash crosses its stem (double stroke); "ar": 1 when a small arrow (->) is printed above it; "cl": 1 for a "+" above a hi-hat.
 - On an item, optional "w": the lyric word or syllable printed under that stem.
-- Per measure, optional: "volta": "1." (or "2.") on the first measure under a 1st/2nd ending bracket, with "voltaLen": how many measures the bracket covers; "simile": true with "up": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true for repeat barlines; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM if a tempo mark sits above it; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans.
+- Per measure, optional: "volta": "1." (or "2.") on the first measure under a 1st/2nd ending bracket, with "voltaLen": how many measures the bracket covers; "simile": true with "up": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true ONLY for a real repeat barline, which always has two dots (:) in the middle spaces beside a thick and a thin line. The percussion clef at the start of every line (two short thick vertical bars) is NOT a repeat sign, and neither is the edge of the picture or a plain or double barline: no dots means no repeat; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM if a tempo mark sits above it; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans.
 
 ${part?partNote(part)+'The JSON (after those lines) must have this shape:':'Reply with only JSON in this shape:'}
 {"title": null, "singer": null, "timeSig": [4,4], "measures": [{"up": [{"d":"8","n":["hh","kick"]}, {"d":"8","n":["hh"]}]}]}
