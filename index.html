@@ -2525,6 +2525,8 @@ function addText(){
   txtNew={mi,x:lt/(ti.bl*TPQ)};openHdr('txt:new');
 }
 function openHdr(key){
+  if(hdrKey===key&&!hdrEl.hidden)return;
+  if(hdrKey)closeHdr(true); // whatever was being typed in another field is kept
   if(key.startsWith('txt:')){const o=key==='txt:new'?null:elOwner(key);if(key!=='txt:new'&&!o)return;if(key!=='txt:new')txtNew=null;
     hdrKey=key;hdrEl.hidden=false;hdrEl.value=o?o.meas.t:'';hdrEl.placeholder='텍스트 입력';positionHdr();hdrEl.focus();hdrEl.select();return}
   const sm=key.startsWith('sec:')&&score.measures[+key.slice(4)];
@@ -2554,6 +2556,7 @@ function closeHdr(save){
 }
 hdrEl.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229)return;if(e.key==='Enter'){e.preventDefault();closeHdr(true)}else if(e.key==='Escape'){e.preventDefault();closeHdr(false)}});
 hdrEl.addEventListener('input',positionHdr);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&hdrKey)closeHdr(true)});
 hdrEl.addEventListener('blur',()=>setTimeout(()=>{if(hdrKey&&document.activeElement!==hdrEl)closeHdr(true)},120));
 
 /* ---------- keyboard ---------- */
@@ -2561,6 +2564,8 @@ hdrEl.addEventListener('blur',()=>setTimeout(()=>{if(hdrKey&&document.activeElem
 // moving here — inside the Claude app the keys then went to the chat box. Take focus on every press.
 document.addEventListener('pointerdown',e=>{
   if(!document.hasFocus())try{window.focus()}catch(err){}
+  // a click anywhere else ends the title / singer / text box typing and keeps what was typed (Enter isn't needed)
+  if(hdrKey&&e.target!==hdrEl)closeHdr(true);
   const ae=document.activeElement;
   if(ae&&ae!==document.body&&ae.matches&&ae.matches('input,textarea,select')&&!(e.target.closest&&e.target.closest('input,textarea,select,label'))&&ae!==lyrEl&&ae!==tempoEl&&ae!==hdrEl)ae.blur();
 },true);
