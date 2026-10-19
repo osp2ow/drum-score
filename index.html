@@ -105,6 +105,8 @@ kbd{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:10.5px;c
 .cell .fl{fill:currentColor}
 .cell .st{stroke:color-mix(in srgb,currentColor 35%,transparent);stroke-width:.1}
 .hint{color:var(--muted);font-size:12.5px;margin:0}
+.scrow{display:flex;align-items:center;gap:4px}.scrow .ib{border-color:var(--line);min-height:28px;min-width:30px;font-size:15px;color:var(--fg)}
+#scPct{min-width:46px;text-align:center;font-variant-numeric:tabular-nums;color:var(--fg);font-size:13px}#scAuto{font-size:12px!important;margin-left:4px}
 .note{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:12.5px;margin:0}
 h3{font-size:12.5px;margin:0;font-weight:600;color:var(--muted);letter-spacing:.02em}
 /* document column */
@@ -393,6 +395,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <label class="field">가수 (오른쪽 아래)<input id="fCmp" placeholder="가수"></label>
             <label class="field">한 줄 마디 수<select id="fMpl"><option value="0">자동</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
             <label class="field full">페이지 맞춤<select id="fFit"><option value="0">끄기 (항상 100%)</option><option value="1">1장 안에</option><option value="2">2장 안에</option><option value="3">3장 안에</option><option value="4">4장 안에</option></select><span class="hint" id="fitNow"></span></label>
+            <div class="field full scadj"><span>악보 크기 직접 조절</span><div class="scrow"><button type="button" class="ib" id="scDn" aria-label="악보 작게">&minus;</button><span id="scPct">100%</span><button type="button" class="ib" id="scUp" aria-label="악보 크게">+</button><button type="button" class="ib" id="scAuto">자동으로</button></div></div>
             <label class="chk full"><input type="checkbox" id="fNums"> 마디 번호 표시 (각 줄 맨 앞)</label>
             <label class="chk full"><input type="checkbox" id="fVoices"> 손·발 나눠 그리기 (킥·페달은 기둥 아래로)</label>
             <label class="chk full" id="hideRow"><input type="checkbox" id="fHide"> 나눠 그릴 때 발 쉼표 숨기기</label>
@@ -634,6 +637,7 @@ function normScore(s){
   let cur=validTs(s.ts);
   const o={id:typeof s.id==='string'&&s.id?s.id:sid(),title:str(s.title),subtitle:str(s.subtitle),composer:str(s.composer),arranger:s.arranger===undefined?DEF_LEFT:str(s.arranger),
     ts:cur.slice(),mpl:[0,2,3,4,5,6].includes(+s.mpl)?+s.mpl:4,hideV2Rests:!!s.hideV2Rests,voices:s.voices===2?2:1,showNums:!!s.showNums,fitPages:s.fitPages===undefined?2:([0,1,2,3,4].includes(+s.fitPages)?+s.fitPages:2),measures:[]};
+  if(+s.manScale>=0.3&&+s.manScale<=1.6)o.manScale=Math.round(+s.manScale*100)/100;
   if(FONTS[s.font]&&s.font!=='pretendard')o.font=s.font;
   if(s.text&&typeof s.text==='object'){const tx={};for(const k of Object.keys(TXT_DEF)){const v=s.text[k];if(v&&typeof v==='object'){const e={};if(+v.pt>=6&&+v.pt<=48)e.pt=+v.pt;if(v.b!=null)e.b=v.b?1:0;if(Object.keys(e).length)tx[k]=e}}if(Object.keys(tx).length)o.text=tx}
   (Array.isArray(s.measures)?s.measures:[]).forEach((m,i)=>{
@@ -838,6 +842,12 @@ function textW(t,size,weight,family){
   }
   return w1*size;
 }
+// when a line is packed so tight that R / L would touch, that line's letters get a little smaller so a gap always stays
+function stkFit(sys){if(sys.stkF!=null)return sys.stkF;const st=txs('stk'),lw=textW('R',st.sz,st.w,SEC_FONT),gap=0.4;let dmin=1e9;
+  for(const mi of sys.ms){const m=score.measures[mi],ml=L.mL[mi];if(!ml)continue;const xs=[...new Set(m.notes.filter(n=>n.h).map(n=>Math.round(mtx(ml,n.b,n.s/m.divs[n.b])*1000)/1000))].sort((a,c)=>a-c);
+    for(let i=1;i<xs.length;i++)dmin=Math.min(dmin,xs[i]-xs[i-1])}
+  return sys.stkF=dmin>=lw+gap?1:Math.max(0.8,(dmin-gap)/lw)}
+function stkW(t){const x=txs('stk');return textW(t,x.sz,x.w,SEC_FONT)+1.1}
 function lyrW(t){const x=txs('lyr');return textW(t,x.sz,x.w)+0.9}
 const graceW=n=>n.g==='drag'?2.6:n.g==='flam'?2.1:0;
 function tsWidthOf(ts){const w=n=>String(n).split('').reduce((a,c)=>a+TS_ADV[+c],0);return Math.max(w(ts[0]),w(ts[1]))}
@@ -856,6 +866,8 @@ function natural(mi,vl1,vl2,ti){
       if(it.k==='n'){const g=Math.max(0,...it.notes.map(graceW));if(g){const k=key(it.vf!=null?it.vf:it.s/it.D);gw.set(k,Math.max(gw.get(k)||0,g))}}
     }
     for(const l of m.lyrics) if(l.b===b) add(l.s/l.d,lyrW(l.t));
+    // sticking letters (R / L) keep a clear gap between them
+    for(const n of m.notes) if(n.h&&n.b===b) add(n.s/m.divs[b],stkW(n.h));
     if(!need.size)add(0,1.8);
     const ts=[...need.keys()].sort((a,c)=>a-c);
     let p=0;
@@ -924,7 +936,9 @@ function computeLayout(){
     const last=j>=N;
     // every measure in a line gets the same width (times its own [ ] width factor), whatever is written in it
     const autoWf=k=>{const m=score.measures[k];if(m.simile)return 1;const ti=TIS[k];if(ti.compound)return 1;return m.divs.some(d=>d>=6)?1.3:1};
-    const wf=k=>score.measures[k].wf||autoWf(k),sumwf=ms.reduce((a,k)=>a+wf(k),0);
+    // a measure with dense sticking takes more of the line so the letters don't run together
+    const unit0=avail/Math.max(ms.length,pl),stkWf=k=>score.measures[k].notes.some(n=>n.h)?Math.min(1.7,NAT[k].w/unit0):0;
+    const wf=k=>score.measures[k].wf||Math.max(autoWf(k),stkWf(k)),sumwf=ms.reduce((a,k)=>a+wf(k),0);
     const unit=avail/Math.max(sumwf,pl);
     const widths={};let tot=0;for(const k of ms){widths[k]=unit*wf(k);tot+=widths[k]}
     const sys={ms,first,sx,hw,widths,end:MARGIN+CONTENT_W,brk:!!score.measures[j-1].pageBreak};
@@ -989,7 +1003,8 @@ function computeLayout(){
   };
   let sc=1,res=pack();
   const maxP=score.fitPages;
-  if(maxP>0&&res.pages.length>maxP){
+  if(score.manScale){sc=score.manScale;setScale(sc);res=pack()}
+  else if(maxP>0&&res.pages.length>maxP){
     let lo=0.35,hi=1;
     for(let it=0;it<14;it++){const mid=(lo+hi)/2;setScale(mid);if(pack().pages.length<=maxP)lo=mid;else hi=mid}
     sc=lo;setScale(sc);res=pack();
@@ -1258,11 +1273,11 @@ function renderMeasureBody(mi,sys,exp){
     o+=`<text class="tx t-lyr${hit?' lyr-hid':''}" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle">${esc(l.t)}</text>`;
   });
   // sticking (R / L): on the lyric line, or on its own line below when a word sits under the same note
-  {const st=txs('stk'),seen=new Set();
+  {const st0=txs('stk'),seen=new Set(),f=stkFit(sys),st={...st0,sz:st0.sz*f};
    for(const n of m.notes){if(!n.h)continue;const k=n.b+'|'+n.s;if(seen.has(k))continue;seen.add(k);
      const x=mtx(ml,n.b,n.s/m.divs[n.b])+HEAD_W/2,w=textW(n.h,st.sz,st.w,SEC_FONT);
      const y=top+sys.lyrY+(sys.stkLow?(sys.stkBelow||2.4):0);
-     o+=elG('stk:'+n.id,offOf(n,'stk'),`<text class="tx t-stk" x="${r(x)}" y="${r(y)}" text-anchor="middle">${n.h}</text>`,[x-w/2-0.3,y-st.sz*0.8,w+0.6,st.sz])}}
+     o+=elG('stk:'+n.id,offOf(n,'stk'),`<text class="tx t-stk" x="${r(x)}" y="${r(y)}" text-anchor="middle"${f<1?` style="font-size:${r(st.sz)}px"`:''}>${n.h}</text>`,[x-w/2-0.3,y-st.sz*0.8,w+0.6,st.sz])}}
   if(secLater)o+=secLater();
   return o;
 }
@@ -1478,7 +1493,7 @@ function render(scrollSel){
   pagesEl.innerHTML=L.pages.map((_,i)=>renderPage(i,false)).join('');
   const w=BASE_W*PX_PER_SP*zoom;
   pagesEl.querySelectorAll('svg.page').forEach(s=>{s.style.width=w+'px';s.style.height=(w*BASE_H/BASE_W)+'px'});
-  if(!$('#dock-lay').hidden){const el=$('#fitNow');if(el)el.textContent=L.scale<0.999?`지금 ${Math.round(L.scale*100)}% 크기로 줄여서 ${L.pages.length}장에 맞췄어요`:`지금 ${L.pages.length}장 · 100% 크기`}
+  if(!$('#dock-lay').hidden)showFit();
   renderChrome();
   if(!$('#dock-prop').hidden)renderProps();
   if(scrollSel){const el=pagesEl.querySelector('.mu.sel,.mhit.on');if(el)el.scrollIntoView({block:'nearest',inline:'nearest'})}
@@ -1845,6 +1860,9 @@ function typeOnRest(inst,shift){
   const vl=L.VL&&L.VL[mi]&&L.VL[mi][(sel.v||1)-1],it=vl&&vl.items&&vl.items.find(i=>i.k==='r'&&Math.abs(i.b+i.s/i.D-sel.t)<1e-6);
   const slotWise=ti.compound||div===3||div===6||(div===8&&ti.bf===0)||(div===12&&it&&it.D===6);
   if(slotWise||shift){stampOnRest(inst,!shift);return}
+  // a clicked rest of one beat or shorter is filled with a note of its own length (a 16th rest gives a 16th note)
+  if(it&&!inputMode&&!(it.span>1)&&!ti.compound){const q=restDurQ();if(q)
+    for(const [d,dot] of [[q,false],[q/1.5,true]]){if(q<=ti.bl+1e-9&&DURS.some(x=>Math.abs(x.q-d)<1e-9)){inputDur=DURS.find(x=>Math.abs(x.q-d)<1e-9).q;inputDot=dot;inputTrip=false;renderChrome();break}}}
   sel={type:'measure',m:mi,pos:posFromBeats(mi,sel.t)};enterAtCursor(inst);
 }
 // in a triplet / sextuplet / 32nd beat a written value takes this many slots: in a sextuplet a 16th = 1, an 8th = 2, a dotted 8th = 3
@@ -2887,17 +2905,25 @@ $('#dock-prop').addEventListener('change',e=>{
 
 /* layout tab */
 function fillLayout(){
-  $('#fFit').value=String(score.fitPages);const fn=$('#fitNow');if(fn&&L)fn.textContent=L.scale<0.999?`지금 ${Math.round(L.scale*100)}% 크기로 줄여서 ${L.pages.length}장에 맞췄어요`:`지금 ${L.pages.length}장 · 100% 크기`;
+  $('#fFit').value=String(score.fitPages);showScale();showFit();
   $('#fNums').checked=!!score.showNums;
   $('#fFont').innerHTML=Object.entries(FONTS).map(([k,f])=>`<option value="${k}"${(score.font||'pretendard')===k?' selected':''}>${f.l}</option>`).join('');
   $('#txGrid').innerHTML=Object.entries(TXT_DEF).map(([k,d])=>{const t=txs(k);return `<span>${d.l}</span><label class="txsz"><input type="number" id="tx-${k}-pt" min="6" max="48" step="0.5" value="${t.pt}" aria-label="${d.l} 크기"> pt</label><label class="chk"><input type="checkbox" id="tx-${k}-b"${t.w===700?' checked':''}> 굵게</label>`}).join('');
 $('#fVoices').checked=score.voices===2;$('#hideRow').hidden=score.voices!==2;$('#fTitle').value=score.title;$('#fSub').value=score.subtitle;$('#fCmp').value=score.composer;$('#fArr').value=score.arranger;$('#fMpl').value=String(score.mpl);$('#fHide').checked=score.hideV2Rests}
+// page fit: the score size can also be set by hand, 5% at a time
+function showFit(){const fn=$('#fitNow');if(fn&&L)fn.textContent=score.manScale?`직접 맞춘 ${Math.round(L.scale*100)}% 크기 · 지금 ${L.pages.length}장`:L.scale<0.999?`지금 ${Math.round(L.scale*100)}% 크기로 줄여서 ${L.pages.length}장에 맞췄어요`:`지금 ${L.pages.length}장 · 100% 크기`;showScale();const f=$('#fFit');if(f)f.value=String(score.fitPages)}
+function showScale(){const e=$('#scPct');if(e&&L)e.textContent=Math.round(L.scale*100)+'%';const a=$('#scAuto');if(a)a.disabled=!score.manScale}
+function nudgeScale(d){const cur=score.manScale||(L?L.scale:1);const v=Math.max(0.3,Math.min(1.6,Math.round((Math.round(cur*20)/20+d)*100)/100));
+  if(score.manScale===v)return;commit(()=>{score.manScale=v});fillLayout()}
+$('#scDn').addEventListener('click',()=>nudgeScale(-0.05));
+$('#scUp').addEventListener('click',()=>nudgeScale(0.05));
+$('#scAuto').addEventListener('click',()=>{if(!score.manScale)return;commit(()=>{delete score.manScale});fillLayout()});
 $('#dock-lay').addEventListener('change',e=>{
   const t=e.target,map={fTitle:'title',fSub:'subtitle',fCmp:'composer',fArr:'arranger'};
   if(map[t.id]){commit(()=>{score[map[t.id]]=str(t.value)});return}
   if(t.id==='fMpl'){commit(()=>{score.mpl=+t.value});return}
   if(t.id==='fHide'){commit(()=>{score.hideV2Rests=t.checked});return}
-  if(t.id==='fFit'){commit(()=>{score.fitPages=+t.value});return}
+  if(t.id==='fFit'){commit(()=>{score.fitPages=+t.value;delete score.manScale});return}
   if(t.id==='fNums'){commit(()=>{if(t.checked)score.showNums=true;else score.showNums=false});return}
   if(t.id==='fFont'){commit(()=>{if(t.value==='pretendard')delete score.font;else score.font=t.value});return}
   const tm=t.id.match(/^tx-(\w+)-(pt|b)$/);
