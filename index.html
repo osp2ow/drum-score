@@ -3536,8 +3536,9 @@ async function splitScoreImage(file){
   }catch(e){return null}
 }
 /* ---------- video: walk through a performance video and capture each new line of the score, in order ---------- */
-const videoQueue=[];let videoBusy=false;
-async function runVideos(){if(videoBusy)return;videoBusy=true;try{while(videoQueue.length)await analyzeVideo(videoQueue.shift())}finally{videoBusy=false}}
+// videos of one score run one after another; a video of a score you left waits without holding up the others
+const videoChains={};
+function runVideo(file,sid){videoChains[sid]=(videoChains[sid]||Promise.resolve()).then(()=>analyzeVideo(file,sid)).catch(()=>{})}
 // the 5-line staves in a frame (same rules as the capture cutter)
 function findStaves(dk,W,H){
   const rows=[];for(let y=0;y<H;y++){let n=0;const o=y*W;for(let x=0;x<W;x++)n+=dk[o+x];rows.push(n/W)}
@@ -3557,10 +3558,21 @@ function gridSig(dk,W,H,x0,x1,y0,y1,nx,ny){const g=new Uint8Array(nx*ny),cw=(x1-
   for(let gy=0;gy<ny;gy++)for(let gx=0;gx<nx;gx++){const xa=Math.max(0,Math.floor(x0+gx*cw)),xb=Math.min(W,Math.max(xa+1,Math.floor(x0+(gx+1)*cw))),ya=Math.max(0,Math.floor(y0+gy*ch)),yb=Math.min(H,Math.max(ya+1,Math.floor(y0+(gy+1)*ch)));
     let n=0,t=0;for(let y=ya;y<yb;y++)for(let x=xa;x<xb;x++){n+=dk[y*W+x];t++}g[gy*nx+gx]=t&&n/t>0.14?1:0}
   g.nx=nx;return g}
+// the measure number at the start of the line, cut to its own outline and redrawn on a small grid: lines with the same
+// groove differ only here ("13" and "17"), so this one is compared exactly rather than loosely
+function numSig(dk,W,H,st){const sp=st.sp,ym=Math.round(st.y0);let xs=0;
+  for(let x=0;x<W;x++){let run=0;while(x+run<W&&(dk[ym*W+x+run]||(ym+1<H&&dk[(ym+1)*W+x+run])))run++;if(run>sp*2){xs=x;break}x+=run}
+  const x0=Math.max(0,Math.round(xs-sp)),x1=Math.min(W,Math.round(xs+4.6*sp)),y0=Math.max(0,Math.round(st.y0-4.6*sp)),y1=Math.max(0,Math.round(st.y0-0.45*sp));
+  let bx0=1e9,bx1=-1,by0=1e9,by1=-1;for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)if(dk[y*W+x]){if(x<bx0)bx0=x;if(x>bx1)bx1=x;if(y<by0)by0=y;if(y>by1)by1=y}
+  const NX=20,NY=12,g=new Uint8Array(NX*NY);g.nx=NX;if(bx1<0||by1-by0<sp*0.5){g.empty=true;return g}
+  const cw=(bx1-bx0+1)/NX,ch=(by1-by0+1)/NY;
+  for(let gy=0;gy<NY;gy++)for(let gx=0;gx<NX;gx++){let n=0,t=0;for(let y=Math.floor(by0+gy*ch);y<Math.max(Math.floor(by0+gy*ch)+1,Math.floor(by0+(gy+1)*ch));y++)for(let x=Math.floor(bx0+gx*cw);x<Math.max(Math.floor(bx0+gx*cw)+1,Math.floor(bx0+(gx+1)*cw));x++){n+=dk[y*W+x];t++}g[gy*NX+gx]=t&&n/t>0.35?1:0}
+  g.w=(bx1-bx0)/sp;return g}
+function numDiff(a,b){if(a.empty||b.empty)return a.empty&&b.empty?0:1;if(Math.abs(a.w-b.w)>0.6)return 1;return sigDiff(a,b)}
 function detailSig(dk,W,H,st){const sp=st.sp;
   // the measure number (top left) and the words under the line: where repeated grooves still differ
   const a=gridSig(dk,W,H,0,sp*12,st.y0-4.5*sp,st.y0-0.4*sp,60,21),b=gridSig(dk,W,H,0,W,st.y4+1.6*sp,st.y4+6*sp,240,12);
-  return {a,b}}
+  return {a,b,n:numSig(dk,W,H,st)}}
 // share of marks that have nothing near them in the other grid (one cell of slack each way)
 function tolDiff(a,b){const nx=a.nx,ny=a.length/nx;let d=0,on=0;
   const near=(g,x,y)=>{for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const X=x+dx,Y=y+dy;if(X>=0&&X<nx&&Y>=0&&Y<ny&&g[Y*nx+X])return true}return false};
@@ -3571,9 +3583,9 @@ function sigDiff(a,b){let d=0,on=0;for(let i=0;i<a.length;i++){if(a[i]!==b[i])d+
 function wipePlayhead(px,W,H){const isG=i=>{const r=px[i],g=px[i+1],b=px[i+2],mx=Math.max(r,g,b),mn=Math.min(r,g,b);return mx-mn>60&&mx>90};
   for(let y=0;y<H;y++){for(let x=0;x<W;x++){if(!isG((y*W+x)*4))continue;let e=x;while(e+1<W&&isG((y*W+e+1)*4))e++;
     if(e-x<=14){const L1=x>0?(y*W+x-1)*4:-1,R1=e<W-1?(y*W+e+1)*4:-1;for(let k=x;k<=e;k++){const i=(y*W+k)*4;for(let c=0;c<3;c++)px[i+c]=L1>=0&&R1>=0?Math.min(px[L1+c],px[R1+c]):L1>=0?px[L1+c]:R1>=0?px[R1+c]:255}}x=e}}}
-async function analyzeVideo(file){
+async function analyzeVideo(file,sid){
   const url=URL.createObjectURL(file),v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
-  const job={id:++jobSeq,file:null,url:null,status:'video',isVideo:true,msg:'영상 여는 중…',open:false,sid:score.id};queue.push(job);if(view!=='score')showView('score');showDock('cap');renderQueue();
+  const job={id:++jobSeq,file:null,url:null,status:'video',isVideo:true,msg:'영상 여는 중…',open:false,sid:sid||score.id};queue.push(job);if(job.sid===score.id){if(view!=='score')showView('score');showDock('cap')}renderQueue();
   const done=msg=>{job.status='ok';job.msg=msg;renderQueue();URL.revokeObjectURL(url)};
   try{await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=()=>rej(0);setTimeout(()=>rej(0),20000)})}
   catch(e){job.status='err';job.msg='이 영상은 열 수 없어요. mp4(H.264) 파일로 넣어 주세요';renderQueue();URL.revokeObjectURL(url);return}
@@ -3585,7 +3597,7 @@ async function analyzeVideo(file){
   const accepted=[];let prev=[],lines=0;const step=0.5;
   // each new line is kept open for a few more samples and those frames are averaged: video compression noise
   // around the noteheads mostly cancels out, so kick / snare / toms are much easier to tell apart
-  const cols=[],MAXF=5,same=(a,b)=>tolDiff(a.g,b.g)<0.015&&tolDiff(a.d.a,b.d.a)<0.03&&tolDiff(a.d.b,b.d.b)<0.04;
+  const cols=[],MAXF=5,same=(a,b)=>tolDiff(a.g,b.g)<0.015&&numDiff(a.d.n,b.d.n)<0.2&&tolDiff(a.d.a,b.d.a)<0.03&&tolDiff(a.d.b,b.d.b)<0.04;
   const addFrame=(col,px,y0)=>{const base=Math.round(y0)+col.dy;for(let y=0;y<col.h;y++){const sy=base+y;if(sy<0||sy>=H)continue;const so=sy*W*4,d=y*W*4;for(let i=0;i<W*4;i++)col.acc[d+i]+=px[so+i]}col.n++};
   const flush=async all=>{while(cols.length&&(cols[0].done||all)){const col=cols.shift();
     const im=new ImageData(W,col.h),q=im.data;for(let i=0;i<q.length;i++)q[i]=col.acc[i]/col.n;for(let i=3;i<q.length;i+=4)q[i]=255;
@@ -3594,7 +3606,7 @@ async function analyzeVideo(file){
     enqueue([new File([b],`영상 ${Math.floor(col.t/60)}분${String(Math.floor(col.t%60)).padStart(2,'0')}초.png`,{type:'image/png'})],{sid:job.sid,vid:job.id})}};
   for(let t=0.1;t<dur;t+=step){
     if(job.stop){if(!job.stopAll)await flush(true);done(job.stopAll?'영상 변환을 멈췄어요':`영상 분석을 멈췄어요 · 여기까지 ${lines}줄을 변환해요`);return}
-    if(job.sid!==score.id){job.status='err';job.msg='다른 악보를 열어서 영상 분석을 멈췄어요';renderQueue();URL.revokeObjectURL(url);return}
+    while(job.sid!==score.id&&!job.stop){if(job.gone){URL.revokeObjectURL(url);return}job.msg='다른 악보를 보는 동안 잠시 멈췄어요 · 이 악보로 돌아오면 이어서 해요';await new Promise(r=>setTimeout(r,500))}
     await seek(t);ctx.drawImage(v,0,0,W,H);
     const px=ctx.getImageData(0,0,W,H).data;wipePlayhead(px,W,H);const dk=darkMap(px,W,H),staves=findStaves(dk,W,H),now=[];
     const seen=new Set();
@@ -3622,7 +3634,7 @@ async function analyzeVideo(file){
 const queue=[];let busy=false,jobSeq=0;
 function enqueue(files,from){
   const vids=[...files].filter(f=>f&&f.type&&f.type.startsWith('video/'));
-  for(const v of vids)videoQueue.push(v);if(vids.length)runVideos();
+  for(const v of vids)runVideo(v,score.id);
   const imgs=[...files].filter(f=>f&&f.type&&f.type.startsWith('image/'));
   if(!imgs.length)return vids.length>0;
   for(const f of imgs)queue.push({id:++jobSeq,file:f,url:URL.createObjectURL(f),status:'wait',msg:'',open:false,sid:from&&from.sid||score.id,vid:from&&from.vid||null});
@@ -3699,10 +3711,10 @@ function sampleErr(e){
     default:return '연결이 끊겼어요. 다시 시도해 주세요.';
   }
 }
+const mineJ=j=>!j.sid||j.sid===score.id;
 async function processQueue(){
   if(busy)return;
-  let job;
-  while((job=queue.find(j=>j.status==='wait'))&&job.sid&&job.sid!==score.id){job.status='err';job.code='moved';job.msg='다른 악보를 열어서 변환하지 않았어요 · 이 악보에 넣으려면 다시 시도';job.sid=null}
+  const job=queue.find(j=>j.status==='wait'&&mineJ(j));
   renderQueue();if(!job)return;
   busy=true;job.status='run';job.t0=Date.now();job.found=0;renderQueue();
   const s=await samplePromise;
@@ -3710,13 +3722,15 @@ async function processQueue(){
   if(!s){
     if(!lsGet('jds:apikey')){job.status='manual';job.msg='Claude·ChatGPT에서 받은 답을 Ctrl+V 하면 이 캡처 자리에 들어가요';busy=false;renderQueue();processQueue();return}
     try{applyImport(job,await readCapture(job,null))}
-    catch(e){job.status='err';job.code=e&&e.code;
-      job.msg=e&&e.code==='bad_key'?'API 키가 맞지 않아요. 다시 확인해 주세요.':e&&e.name==='AbortError'?'변환을 멈췄어요.':e&&e.code==='rate_limited'?'요청이 많아요. 잠시 뒤 다시 시도해 주세요.':e&&e.code==='invalid_json'?'악보를 제대로 읽지 못했어요. 다시 시도해 주세요.':'변환하지 못했어요. 인터넷 연결과 API 키를 확인해 주세요.'}
+    catch(e){if(!job.pause){job.status='err';job.code=e&&e.code;
+      job.msg=e&&e.code==='bad_key'?'API 키가 맞지 않아요. 다시 확인해 주세요.':e&&e.name==='AbortError'?'변환을 멈췄어요.':e&&e.code==='rate_limited'?'요청이 많아요. 잠시 뒤 다시 시도해 주세요.':e&&e.code==='invalid_json'?'악보를 제대로 읽지 못했어요. 다시 시도해 주세요.':'변환하지 못했어요. 인터넷 연결과 API 키를 확인해 주세요.'}}
+    if(job.pause){job.pause=false;job.status='wait';job.msg=''}
     busy=false;renderQueue();processQueue();return;
   }
   try{
     applyImport(job,await readCapture(job,s));
   }catch(e){job.status='err';job.msg=sampleErr(e);job.code=e&&e.code}
+  if(job.pause){job.pause=false;job.status='wait';job.msg=''}
   busy=false;renderQueue();processQueue();
 }
 // note values from the capture ("8", "16", "8.", "8t"...) in 1/48ths of a quarter note
@@ -3763,7 +3777,7 @@ function simplifyOpenHH(ms){
   }
 }
 function applyImport(job,data){
-  if(job.sid&&job.sid!==score.id){job.status='err';job.code='moved';job.msg='다른 악보를 열어서 넣지 않았어요 · 이 악보에 넣으려면 다시 시도';job.sid=null;return}
+  if(job.sid&&job.sid!==score.id){job.pause=true;return} // finished while another score was open: read it again when its score is back
   const before=score.id;applyImport0(job,data);
   // the score got a new id (first capture into a blank score, or a new song): the rest of the same batch follows it
   if(score.id!==before)for(const j of queue)if(j.sid===before)j.sid=score.id;
@@ -3840,15 +3854,16 @@ function updateJobStat(j){const el=document.querySelector(`.job[data-j="${j.id}"
 function stopVideo(v){if(v.status==='video'){v.stop=true;v.stopAll=true;v.msg='멈추는 중…'}
   for(const j of queue){if(j.vid!==v.id)continue;if(j.status==='wait'){j.status='err';j.code='cancelled';j.msg='멈췄어요'}else if(j.status==='run'&&j.ctl)j.ctl.abort()}
   if(v.status!=='video'){v.msg='영상 변환을 멈췄어요'}renderQueue()}
-function stopAllJobs(){for(const j of queue){if(j.status==='video'){j.stop=true;j.stopAll=true;j.msg='멈추는 중…'}else if(j.status==='wait'){j.status='err';j.code='cancelled';j.msg='멈췄어요'}else if(j.status==='run'&&j.ctl)j.ctl.abort()}renderQueue()}
+function stopAllJobs(){for(const j of queue){if(!mineJ(j))continue;if(j.status==='video'){j.stop=true;j.stopAll=true;j.msg='멈추는 중…'}else if(j.status==='wait'){j.status='err';j.code='cancelled';j.msg='멈췄어요'}else if(j.status==='run'&&j.ctl)j.ctl.abort()}renderQueue()}
 // switching to another score: everything still in the capture list belonged to the old one
-function clearCapture(){stopAllJobs();for(const j of queue)if(j.url)try{URL.revokeObjectURL(j.url)}catch(e){}
-  for(let i=queue.length-1;i>=0;i--){if(queue[i].status!=='run')queue.splice(i,1);else queue[i].gone=true}renderQueue()}
+function clearCapture(){setTimeout(()=>{for(const j of queue)if(j.status==='run'&&!mineJ(j)&&j.ctl){j.pause=true;j.ctl.abort()}renderQueue();processQueue()},0)}
+// a deleted score takes its capture list with it
+function dropCapture(id){for(const j of queue)if(j.sid===id){j.gone=true;if(j.status==='video'){j.stop=true;j.stopAll=true}if(j.status==='run'&&j.ctl)j.ctl.abort();if(j.url&&j.status!=='run')try{URL.revokeObjectURL(j.url)}catch(e){}}renderQueue()}
 function renderQueue(){
   for(let i=queue.length-1;i>=0;i--)if(queue[i].gone&&queue[i].status!=='run')queue.splice(i,1);
-  {const busyN=queue.filter(j=>j.status==='wait'||j.status==='run'||j.status==='video').length,bar=$('#qBar');
+  {const busyN=queue.filter(j=>mineJ(j)&&(j.status==='wait'||j.status==='run'||j.status==='video')).length,bar=$('#qBar');
     if(bar){bar.hidden=!busyN;$('#qBarTxt').textContent=busyN?`변환 대기·진행 ${busyN}개`:''}}
-  $('#queue').innerHTML=queue.slice().reverse().map(j=>`<li class="job" data-j="${j.id}">
+  $('#queue').innerHTML=queue.filter(mineJ).reverse().map(j=>`<li class="job" data-j="${j.id}">
     ${j.url?`<button class="thumb" data-a="big" aria-label="캡처 ${j.id} 원본 ${j.open?'접기':'크게 보기'}"><img src="${j.url}" alt=""></button>`:`<span class="thumb nopic">${j.isVideo?'영상':'붙여넣음'}</span>`}
     <div><div class="jtitle">${j.isVideo?'영상':'캡처'} ${j.id}</div><div class="jstat ${j.status}">${jobStatText(j)}</div></div>
     <div class="jact">${j.status==='run'||j.status==='video'||(j.isVideo&&queue.some(x=>x.vid===j.id&&(x.status==='wait'||x.status==='run')))?'<button class="btn sm" data-a="stop">멈추기</button>':''}${j.status==='err'&&j.code!=='not_granted'?'<button class="btn sm" data-a="retry">다시 시도</button>':''}${j.status==='ok'&&!j.isVideo?'<button class="btn sm" data-a="go">해당 마디로</button>'+(j.url&&j.via!=='manual'?'<button class="btn sm" data-a="retry">다시 변환</button>':''):''}${j.status!=='run'&&j.status!=='video'?'<button class="btn sm" data-a="rm">지우기</button>':''}</div>
@@ -4000,7 +4015,7 @@ async function openScore(id,stay){
     if(db){const d=await db.collection(userCol()).doc(id).get();if(d.exists)data=d.data().data}
     else data=lsGet('jds:s:'+id);
     if(!data){toast('악보를 찾지 못했어요');return}
-    if(score.id!==id)clearCapture();score=normScore(JSON.parse(data));score.id=id;
+    score=normScore(JSON.parse(data));score.id=id;clearCapture();
   }catch(e){toast('악보를 여는 중 문제가 생겼어요');return}
   hist.u=[];hist.r=[];sel={type:'measure',m:0};lsSet('jds:last',id);dirtyMark=false;
   setSave('ok',storeLabel());
@@ -4010,7 +4025,7 @@ async function deleteScore(id){
   try{if(db)await db.collection(userCol()).doc(id).delete();else{lsDel('jds:s:'+id);lsSet('jds:index',JSON.stringify(list.filter(x=>x.id!==id)))}}
   catch(e){toast('지우지 못했어요. 다시 시도해 주세요');return}
   list=list.filter(x=>x.id!==id);
-  if(score.id===id){clearCapture();score=blankScore();hist.u=[];hist.r=[];sel={type:'measure',m:0}}
+  dropCapture(id);if(score.id===id){score=blankScore();clearCapture();hist.u=[];hist.r=[];sel={type:'measure',m:0}}
   renderHome();toast('악보를 지웠어요');
 }
 const pendingDel=new Set();
@@ -4024,7 +4039,7 @@ function renderHome(){
   }
   $('#cards').innerHTML=cards.join('');
 }
-function newScore(){clearCapture();score=blankScore();hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;dirtyMark=false;setSave('','새 악보 · 편집하면 저장돼요');showView('score')}
+function newScore(){score=blankScore();clearCapture();hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;dirtyMark=false;setSave('','새 악보 · 편집하면 저장돼요');showView('score')}
 $('#cards').addEventListener('click',e=>{
   if(e.target.closest('#newCard')){newScore();return}
   const d=e.target.closest('[data-del]');
@@ -4037,7 +4052,7 @@ $('#newScore').onclick=newScore;
 $('#openJson').onclick=()=>$('#fileJson').click();
 $('#fileJson').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;
-  try{const j=JSON.parse(await f.text());if(!Array.isArray(j.measures))throw 0;clearCapture();score=normScore({...j,id:sid()});delete score.pristine;hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;showView('score');scheduleSave();toast('백업 파일을 열었어요')}
+  try{const j=JSON.parse(await f.text());if(!Array.isArray(j.measures))throw 0;score=normScore({...j,id:sid()});clearCapture();delete score.pristine;hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;showView('score');scheduleSave();toast('백업 파일을 열었어요')}
   catch(err){toast('이 파일은 악보 백업 파일이 아니에요')}
 };
 async function initStore(){
