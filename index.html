@@ -3509,7 +3509,7 @@ async function splitScoreImage(file){
       const per=ms<=2?ms:2;
       const repOf=j=>{const L=bnd[j],Rx=bnd[j+1],mid=(L+Rx)/2;return {rs:R.starts.some(x=>x>=L-sp&&x<mid),re:R.ends.some(x=>x>=mid&&x<=Rx+sp)}};
       for(let k=0;k<ms;k+=per){const n=Math.min(per,ms-k),x0=k===0?0:Math.max(0,Math.round(bnd[k]-sp*0.6)),x1=Math.min(W,Math.round(bnd[k+n]+sp*(k+n>=ms?1.5:0.6)));
-        parts.push({x0,x1,y0:top,y1:bot,measures:n,sp,rep:Array.from({length:n},(_,j)=>repOf(k+j))})}
+        parts.push({x0,x1,y0:top,y1:bot,measures:n,sp,sy0:y0,sy4:y4,rep:Array.from({length:n},(_,j)=>repOf(k+j))})}
     });
     if(parts.length<=1&&staves.length<=1&&parts[0]&&parts[0].measures<=2&&staves[0].sp>=14)return null; // already big enough
     const out=[];
@@ -3517,6 +3517,9 @@ async function splitScoreImage(file){
       const sc=Math.max(1,Math.min(3,18/q.sp)),w=q.x1-q.x0,h=q.y1-q.y0,cw=Math.round(w*sc),ch=Math.round(h*sc);
       const cc=document.createElement('canvas');cc.width=cw;cc.height=ch;const x2=cc.getContext('2d');x2.imageSmoothingQuality='high';
       x2.fillStyle='#fff';x2.fillRect(0,0,cw,ch);x2.drawImage(c,q.x0,q.y0,w,h,0,0,cw,ch);
+      // light colour in the staff spaces (multiplied, so black stays black): yellow kick, pink floor tom, blue snare, green high tom
+      {const Y=y=>(y-q.y0)*sc,g=(q.sy4-q.sy0)/4;x2.save();x2.globalCompositeOperation='multiply';
+        [[q.sy4-g,q.sy4,'#fff1a8'],[q.sy4-2*g,q.sy4-g,'#ffd3dd'],[q.sy4-3*g,q.sy4-2*g,'#c9e4ff'],[q.sy0,q.sy0+g,'#cdf3cd']].forEach(([a,b,col])=>{x2.fillStyle=col;x2.fillRect(0,Y(a),cw,Y(b)-Y(a))});x2.restore()}
       out.push({blob:await new Promise(r=>cc.toBlob(r,'image/png')),measures:q.measures,w:cw,h:ch,rep:q.rep});
     }
     return out.length?out:null;
@@ -3567,30 +3570,45 @@ async function analyzeVideo(file){
   try{await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=()=>rej(0);setTimeout(()=>rej(0),20000)})}
   catch(e){job.status='err';job.msg='이 영상은 열 수 없어요. mp4(H.264) 파일로 넣어 주세요';renderQueue();URL.revokeObjectURL(url);return}
   const dur=v.duration;if(!isFinite(dur)||dur<=0){job.status='err';job.msg='영상 길이를 알 수 없어요';renderQueue();return}
-  const W=Math.min(1600,v.videoWidth||1280),H=Math.round((v.videoHeight||720)*W/(v.videoWidth||1280));
+  // full resolution of the video (small noteheads need every pixel)
+  const W=Math.min(2560,v.videoWidth||1280),H=Math.round((v.videoHeight||720)*W/(v.videoWidth||1280));
   const c=document.createElement('canvas');c.width=W;c.height=H;const ctx=c.getContext('2d',{willReadFrequently:true});
   const seek=t=>new Promise(res=>{let ok=false;const f=()=>{if(ok)return;ok=true;v.removeEventListener('seeked',f);res()};v.addEventListener('seeked',f);v.currentTime=t;setTimeout(f,3000)});
   const accepted=[];let prev=[],lines=0;const step=0.5;
+  // each new line is kept open for a few more samples and those frames are averaged: video compression noise
+  // around the noteheads mostly cancels out, so kick / snare / toms are much easier to tell apart
+  const cols=[],MAXF=5,same=(a,b)=>tolDiff(a.g,b.g)<0.015&&tolDiff(a.d.a,b.d.a)<0.03&&tolDiff(a.d.b,b.d.b)<0.04;
+  const addFrame=(col,px,y0)=>{const base=Math.round(y0)+col.dy;for(let y=0;y<col.h;y++){const sy=base+y;if(sy<0||sy>=H)continue;const so=sy*W*4,d=y*W*4;for(let i=0;i<W*4;i++)col.acc[d+i]+=px[so+i]}col.n++};
+  const flush=async all=>{while(cols.length&&(cols[0].done||all)){const col=cols.shift();
+    const im=new ImageData(W,col.h),q=im.data;for(let i=0;i<q.length;i++)q[i]=col.acc[i]/col.n;for(let i=3;i<q.length;i+=4)q[i]=255;
+    const cc=document.createElement('canvas');cc.width=W;cc.height=col.h;cc.getContext('2d').putImageData(im,0,0);
+    const b=await new Promise(r=>cc.toBlob(r,'image/png'));if(!b)continue;
+    enqueue([new File([b],`영상 ${Math.floor(col.t/60)}분${String(Math.floor(col.t%60)).padStart(2,'0')}초.png`,{type:'image/png'})],{sid:job.sid,vid:job.id})}};
   for(let t=0.1;t<dur;t+=step){
-    if(job.stop){done(job.stopAll?'영상 변환을 멈췄어요':`영상 분석을 멈췄어요 · 여기까지 ${lines}줄을 변환해요`);return}
+    if(job.stop){if(!job.stopAll)await flush(true);done(job.stopAll?'영상 변환을 멈췄어요':`영상 분석을 멈췄어요 · 여기까지 ${lines}줄을 변환해요`);return}
     if(job.sid!==score.id){job.status='err';job.msg='다른 악보를 열어서 영상 분석을 멈췄어요';renderQueue();URL.revokeObjectURL(url);return}
     await seek(t);ctx.drawImage(v,0,0,W,H);
     const px=ctx.getImageData(0,0,W,H).data;wipePlayhead(px,W,H);const dk=darkMap(px,W,H),staves=findStaves(dk,W,H),now=[];
+    const seen=new Set();
     staves.forEach((st,si)=>{
       const top=Math.round(Math.max(si?((staves[si-1].y4+st.y0)/2):0,st.y0-8*st.sp)),bot=Math.round(Math.min(si<staves.length-1?((st.y4+staves[si+1].y0)/2):H,st.y4+7.5*st.sp));
       const sig={g:gridSig(dk,W,H,0,W,st.y0-4*st.sp,st.y4+6*st.sp,200,42),d:detailSig(dk,W,H,st)};now.push(sig);
-      const same=(a,b)=>tolDiff(a.g,b.g)<0.015&&tolDiff(a.d.a,b.d.a)<0.03&&tolDiff(a.d.b,b.d.b)<0.04;
+      // the same line is still on screen: one more frame for its average
+      const open=cols.find(c=>!c.done&&!seen.has(c)&&same(c.sig,sig));
+      if(open){seen.add(open);if(open.n<MAXF)addFrame(open,px,st.y0);return}
       // only a line that has settled (same as half a second ago) and that is not one of the lines just taken
       // (compared with as many lines as the video shows at once, so a groove that comes back later is kept)
       if(!prev.some(p=>same(p,sig)))return;
       if(accepted.slice(-Math.max(1,staves.length)).some(a=>same(a,sig)))return;
       accepted.push(sig);lines++;
-      const cc=document.createElement('canvas');cc.width=W;cc.height=bot-top;cc.getContext('2d').drawImage(c,0,top,W,bot-top,0,0,W,bot-top);
-      cc.toBlob(b=>{if(b){const f=new File([b],`영상 ${Math.floor(t/60)}분${String(Math.floor(t%60)).padStart(2,'0')}초.png`,{type:'image/png'});enqueue([f],{sid:job.sid,vid:job.id})}},'image/png');
+      const col={sig,t,dy:top-Math.round(st.y0),h:bot-top,acc:new Float32Array(W*(bot-top)*4),n:0,done:false};addFrame(col,px,st.y0);cols.push(col);seen.add(col);
     });
+    for(const c of cols)if(!seen.has(c))c.done=true; // that line has left the screen
+    await flush(false);
     prev=now;
     if(Math.round(t/step)%6===0){job.msg=`영상에서 악보 줄 찾는 중 · ${Math.min(100,Math.round(t/dur*100))}% · 지금까지 ${lines}줄`;updateJobStat(job)}
   }
+  await flush(true);
   done(lines?`영상 분석 끝 · 악보 ${lines}줄을 순서대로 변환해요`:'영상에서 악보 줄을 찾지 못했어요');
 }
 const queue=[];let busy=false,jobSeq=0;
@@ -3645,7 +3663,7 @@ Example 3, an 8th rest then a note: [{"d":"8","r":1},{"d":"8","n":["snare"]}].
 Transcribe every measure you can see, left to right and top to bottom, and nothing else. "num": the measure number printed above the first measure in the image (the lone number at the start of the line), as a number, or null when none is printed. Give "title" (song title) and "singer" only if they are printed in the image or written in my message (for example "제목: 사랑비, 가수: 김태우" -> "title": "사랑비", "singer": "김태우"); otherwise null. If the image is not drum notation, reply {"error": "<short reason in Korean>"}.`;
 }
 function partNote(part){
-  return `THIS IMAGE: ${part.total>1?`piece ${part.k} of ${part.total}, cut out of a longer line at the barlines. `:''}It holds exactly ${part.measures} measure${part.measures>1?'s':''} of drum notation${part.k>1?' (it may start without a clef or time signature; that is normal)':''}. Return exactly ${part.measures} measure${part.measures>1?'s':''}.
+  return `THIS IMAGE: ${part.total>1?`piece ${part.k} of ${part.total}, cut out of a longer line at the barlines. `:''}The staff spaces are lightly tinted to help you place each notehead: YELLOW space (bottom) = kick, PINK space = floor tom, BLUE space = snare, GREEN space (top) = high tom; a normal notehead ON the line between blue and green is the mid tom (tom2). The tints are only guides, not notes. It holds exactly ${part.measures} measure${part.measures>1?'s':''} of drum notation${part.k>1?' (it may start without a clef or time signature; that is normal)':''}. Return exactly ${part.measures} measure${part.measures>1?'s':''}.
 
 Work carefully BEFORE writing the JSON. First write, in plain text (never use curly braces), one line per measure: the values of its stems and rests in order for each voice, beat by beat, and their total in quarter notes, for example "M1 up: 8 8 | 8 16 16 | 16 16 8 | 8 8 = 4". Count the beams on every single stem; watch for partial 16th beams. If a total is not the full measure, look again and fix it.
 Then write a line with only JSON: and after it the JSON object.
@@ -3815,7 +3833,11 @@ function stopVideo(v){if(v.status==='video'){v.stop=true;v.stopAll=true;v.msg='�
   for(const j of queue){if(j.vid!==v.id)continue;if(j.status==='wait'){j.status='err';j.code='cancelled';j.msg='멈췄어요'}else if(j.status==='run'&&j.ctl)j.ctl.abort()}
   if(v.status!=='video'){v.msg='영상 변환을 멈췄어요'}renderQueue()}
 function stopAllJobs(){for(const j of queue){if(j.status==='video'){j.stop=true;j.stopAll=true;j.msg='멈추는 중…'}else if(j.status==='wait'){j.status='err';j.code='cancelled';j.msg='멈췄어요'}else if(j.status==='run'&&j.ctl)j.ctl.abort()}renderQueue()}
+// switching to another score: everything still in the capture list belonged to the old one
+function clearCapture(){stopAllJobs();for(const j of queue)if(j.url)try{URL.revokeObjectURL(j.url)}catch(e){}
+  for(let i=queue.length-1;i>=0;i--){if(queue[i].status!=='run')queue.splice(i,1);else queue[i].gone=true}renderQueue()}
 function renderQueue(){
+  for(let i=queue.length-1;i>=0;i--)if(queue[i].gone&&queue[i].status!=='run')queue.splice(i,1);
   {const busyN=queue.filter(j=>j.status==='wait'||j.status==='run'||j.status==='video').length,bar=$('#qBar');
     if(bar){bar.hidden=!busyN;$('#qBarTxt').textContent=busyN?`변환 대기·진행 ${busyN}개`:''}}
   $('#queue').innerHTML=queue.slice().reverse().map(j=>`<li class="job" data-j="${j.id}">
@@ -3970,7 +3992,7 @@ async function openScore(id,stay){
     if(db){const d=await db.collection(userCol()).doc(id).get();if(d.exists)data=d.data().data}
     else data=lsGet('jds:s:'+id);
     if(!data){toast('악보를 찾지 못했어요');return}
-    score=normScore(JSON.parse(data));score.id=id;
+    if(score.id!==id)clearCapture();score=normScore(JSON.parse(data));score.id=id;
   }catch(e){toast('악보를 여는 중 문제가 생겼어요');return}
   hist.u=[];hist.r=[];sel={type:'measure',m:0};lsSet('jds:last',id);dirtyMark=false;
   setSave('ok',storeLabel());
@@ -3980,7 +4002,7 @@ async function deleteScore(id){
   try{if(db)await db.collection(userCol()).doc(id).delete();else{lsDel('jds:s:'+id);lsSet('jds:index',JSON.stringify(list.filter(x=>x.id!==id)))}}
   catch(e){toast('지우지 못했어요. 다시 시도해 주세요');return}
   list=list.filter(x=>x.id!==id);
-  if(score.id===id){score=blankScore();hist.u=[];hist.r=[];sel={type:'measure',m:0}}
+  if(score.id===id){clearCapture();score=blankScore();hist.u=[];hist.r=[];sel={type:'measure',m:0}}
   renderHome();toast('악보를 지웠어요');
 }
 const pendingDel=new Set();
@@ -3994,7 +4016,7 @@ function renderHome(){
   }
   $('#cards').innerHTML=cards.join('');
 }
-function newScore(){score=blankScore();hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;dirtyMark=false;setSave('','새 악보 · 편집하면 저장돼요');showView('score')}
+function newScore(){clearCapture();score=blankScore();hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;dirtyMark=false;setSave('','새 악보 · 편집하면 저장돼요');showView('score')}
 $('#cards').addEventListener('click',e=>{
   if(e.target.closest('#newCard')){newScore();return}
   const d=e.target.closest('[data-del]');
@@ -4007,7 +4029,7 @@ $('#newScore').onclick=newScore;
 $('#openJson').onclick=()=>$('#fileJson').click();
 $('#fileJson').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;
-  try{const j=JSON.parse(await f.text());if(!Array.isArray(j.measures))throw 0;score=normScore({...j,id:sid()});delete score.pristine;hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;showView('score');scheduleSave();toast('백업 파일을 열었어요')}
+  try{const j=JSON.parse(await f.text());if(!Array.isArray(j.measures))throw 0;clearCapture();score=normScore({...j,id:sid()});delete score.pristine;hist.u=[];hist.r=[];sel={type:'measure',m:0};userTouched=true;showView('score');scheduleSave();toast('백업 파일을 열었어요')}
   catch(err){toast('이 파일은 악보 백업 파일이 아니에요')}
 };
 async function initStore(){
