@@ -3445,6 +3445,7 @@ async function readCapture(job,s){
   await Promise.all([worker(),worker()]);
   const err=out.find(d=>d&&d.error);if(err&&out.every(d=>d&&(d.error||!(d.measures||[]).length)))return err;
   const merged={title:null,singer:null,timeSig:null,measures:[]};
+  {const n0=out[0]&&!out[0].error?+out[0].num:NaN;if(Number.isInteger(n0)&&n0>0)merged.num=n0}
   for(const d of out){if(!d||d.error)continue;merged.title=merged.title||d.title||null;merged.singer=merged.singer||d.singer||null;merged.timeSig=merged.timeSig||d.timeSig||null;if(Array.isArray(d.measures))merged.measures.push(...d.measures)}
   return merged;
 }
@@ -3630,10 +3631,10 @@ Rhythm: write each measure as its STEMS in time order, with the note value of ea
 - The values of each voice must add up to exactly one whole measure (4/4 = 4 quarters, 3/4 = 3, 6/8 = 6 eighths, 12/8 = 12 eighths). Check every measure; if a sum is off, look at the beams again.
 - In "n" a drum is its name ("hh") or, when it carries marks, an object like {"i":"hh","a":"accent"}. Optional marks: "h": "R" or "L" when a sticking letter is printed under that note (put it on one hand note of the chord); "a": "accent" for > or ^, "ghost" for a note in parentheses; "g": "flam" when one small grace note sits right before it, "drag" when two do (never list grace notes as items); "tr": 1 when a slash crosses its stem (double stroke); "ar": 1 when a small arrow (->) is printed above it; "cl": 1 for a "+" above a hi-hat.
 - On an item, optional "w": the lyric word or syllable printed under that stem.
-- Per measure, optional: "volta": "1." (or "2.") on the first measure under a 1st/2nd ending bracket, with "voltaLen": how many measures the bracket covers; "simile": true with "up": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true ONLY for a real repeat barline, which always has two dots (:) in the middle spaces beside a thick and a thin line. The percussion clef at the start of every line (two short thick vertical bars) is NOT a repeat sign, and neither is the edge of the picture or a plain or double barline: no dots means no repeat; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM if a tempo mark sits above it; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans.
+- Per measure, optional: "volta": "1." (or "2.") on the first measure under a 1st/2nd ending bracket, with "voltaLen": how many measures the bracket covers; "simile": true with "up": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true ONLY for a real repeat barline, which always has two dots (:) in the middle spaces beside a thick and a thin line. The percussion clef at the start of every line (two short thick vertical bars) is NOT a repeat sign, and neither is the edge of the picture or a plain or double barline: no dots means no repeat; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM ONLY when a real tempo mark is printed (a note symbol with "=" and a number, like ♩ = 120, or a number with "BPM"); a lone number, often small or italic, at the start of a line above the staff is the MEASURE NUMBER, never a tempo; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans.
 
 ${part?partNote(part)+'The JSON (after those lines) must have this shape:':'Reply with only JSON in this shape:'}
-{"title": null, "singer": null, "timeSig": [4,4], "measures": [{"up": [{"d":"8","n":["hh","kick"]}, {"d":"8","n":["hh"]}]}]}
+{"title": null, "singer": null, "num": null, "timeSig": [4,4], "measures": [{"up": [{"d":"8","n":["hh","kick"]}, {"d":"8","n":["hh"]}]}]}
 
 Example 1, a basic rock beat in 4/4 (hi-hat 8ths, kick on 1 and 3, snare on 2 and 4):
 {"up":[{"d":"8","n":["hh","kick"]},{"d":"8","n":["hh"]},{"d":"8","n":["hh","snare"]},{"d":"8","n":["hh"]},{"d":"8","n":["hh","kick"]},{"d":"8","n":["hh"]},{"d":"8","n":["hh","snare"]},{"d":"8","n":["hh"]}]}
@@ -3641,7 +3642,7 @@ Example 2, a busier 4/4 measure with open hi-hats (beat 2 is 8th + two 16ths, be
 {"up":[{"d":"8","n":["crash","kick"]},{"d":"8","n":["hho","snare"]},{"d":"8","n":["hho","kick"]},{"d":"16","n":["hho","snare"]},{"d":"16","n":["kick"]},{"d":"16","n":["hho"]},{"d":"16","n":["kick"]},{"d":"8","n":["hho","snare"]},{"d":"8","n":["hho","kick"]},{"d":"8","n":["hho","snare"]}]}
 Example 3, an 8th rest then a note: [{"d":"8","r":1},{"d":"8","n":["snare"]}].
 
-Transcribe every measure you can see, left to right and top to bottom, and nothing else. Give "title" (song title) and "singer" only if they are printed in the image or written in my message (for example "제목: 사랑비, 가수: 김태우" -> "title": "사랑비", "singer": "김태우"); otherwise null. If the image is not drum notation, reply {"error": "<short reason in Korean>"}.`;
+Transcribe every measure you can see, left to right and top to bottom, and nothing else. "num": the measure number printed above the first measure in the image (the lone number at the start of the line), as a number, or null when none is printed. Give "title" (song title) and "singer" only if they are printed in the image or written in my message (for example "제목: 사랑비, 가수: 김태우" -> "title": "사랑비", "singer": "김태우"); otherwise null. If the image is not drum notation, reply {"error": "<short reason in Korean>"}.`;
 }
 function partNote(part){
   return `THIS IMAGE: ${part.total>1?`piece ${part.k} of ${part.total}, cut out of a longer line at the barlines. `:''}It holds exactly ${part.measures} measure${part.measures>1?'s':''} of drum notation${part.k>1?' (it may start without a clef or time signature; that is normal)':''}. Return exactly ${part.measures} measure${part.measures>1?'s':''}.
@@ -3747,6 +3748,13 @@ function applyImport0(job,data){
   const raw=Array.isArray(data.measures)?data.measures:[];
   if(!raw.length){job.status='err';job.msg='마디를 하나도 찾지 못했어요. 더 선명하게 캡처해 주세요.';return}
   const nt=typeof data.title==='string'?str(data.title).trim():'',ns=typeof data.singer==='string'?str(data.singer).trim():'';
+  // a lone measure number read as a tempo: drop it
+  const num=Number.isInteger(+data.num)&&+data.num>0?+data.num:null;
+  if(num)raw.forEach((rm,ri)=>{if(rm&&rm.tempo!=null&&(+rm.tempo===num||+rm.tempo===num+ri))delete rm.tempo});
+  // a line from a video goes where its printed measure number says; a line that is already there is a repeat and is skipped
+  const align=!!(job.vid&&num&&num<=2000);
+  if(align&&!(score.pristine||score.measures.every(isBlank))){const ex=score.measures.slice(num-1,num-1+raw.length);
+    if(ex.length&&ex.some(m=>!isBlank(m))){job.status='ok';job.msg=`마디 ${num}–${num+raw.length-1}은 이미 들어가 있어서 건너뛰었어요`;job.range=[num,Math.min(score.measures.length,num+raw.length-1)];return}}
   let newSong=false;
   if(nt&&!(score.pristine||score.measures.every(isBlank))&&score.title&&score.title.trim()!==nt){
     // a different song title -> keep the open score as it is and start a new one
@@ -3764,7 +3772,11 @@ function applyImport0(job,data){
       if(ns)score.composer=ns;
     }
     else{if(nt&&!score.title)score.title=nt;if(ns&&!score.composer)score.composer=ns}
-    const start=score.measures.length;
+    if(job.vid)score.showNums=true; // video lines keep their measure numbers on screen
+    let start=score.measures.length;
+    if(align&&num-1-start<=64){while(score.measures.length<num-1)score.measures.push(newMeasure(tsInfo(score.measures.length?tsAt(score.measures.length-1):score.ts)));
+      start=num-1;let k=start;while(k<score.measures.length&&k<start+raw.length&&isBlank(score.measures[k]))k++;score.measures.splice(start,k-start)}
+    let at=start;
     let ts=start?tsAt(start-1):score.ts;
     raw.forEach((rm0,ri)=>{
       let rm=rm0;if(!rm||typeof rm!=='object')return;
@@ -3775,18 +3787,18 @@ function applyImport0(job,data){
       const m=normMeasure({...rm,divs,notes:Array.isArray(rm.notes)?rm.notes:[],
         lyrics:(Array.isArray(rm.lyrics)?rm.lyrics:[]).map(l=>({b:+l.b,s:+l.s,d:+(divs[+l.b]||defDiv(ti)),t:l.t}))},ti);
       if(own)m.ts=own;
-      score.measures.push(m);
+      score.measures.splice(at++,0,m);
     });
-    if(score.measures.length===start)return false;
-    simplifyOpenHH(score.measures.slice(start));
+    if(at===start)return false;
+    simplifyOpenHH(score.measures.slice(start,at));
     // shuffle song: straight 8ths in the capture become triplet 1st / 3rd notes, and the shuffle mark goes on
     if($('#capShuffle')&&$('#capShuffle').checked){
-      for(let mi=start;mi<score.measures.length;mi++){const m=score.measures[mi],ti=tiAt(mi);if(ti.compound||ti.bf!==0)continue;
+      for(let mi=start;mi<at;mi++){const m=score.measures[mi],ti=tiAt(mi);if(ti.compound||ti.bf!==0)continue;
         m.divs.forEach((d,b)=>{if(d!==2||!m.notes.some(n=>n.b===b&&n.s===1))return;m.divs[b]=3;m.notes.forEach(n=>{if(n.b===b)n.s*=2});m.lyrics.forEach(l=>{if(l.b===b&&l.d===2){l.d=3;l.s*=2}})})}
       if(!score.measures.slice(0,start+1).some(m=>m.shuffle))score.measures[start].shuffle=true;
     }
-    for(let i=Math.max(1,start);i<score.measures.length;i++)if(score.measures[i].section)sectionOn(i,score.measures[i].section);
-    job.range=[start+1,score.measures.length];
+    for(let i=Math.max(1,start);i<at;i++)if(score.measures[i].section)sectionOn(i,score.measures[i].section);
+    job.range=[start+1,at];
     sel={type:'measure',m:start};
   },{scroll:true});
   if(job.range){job.status='ok';job.msg=newSong?`새 악보 “${score.title}”${score.composer?' · '+score.composer:''}로 만들었어요`:`마디 ${job.range[0]}–${job.range[1]}에 넣었어요`;if(newSong)$('#docTab').textContent=score.title}
