@@ -1999,6 +1999,7 @@ function applyDur(m,ti,b,s,durQ){
 }
 // note input (MuseScore style): put the instrument at the cursor with the chosen length, then move on
 function enterAtCursor(inst){
+  if(sel&&sel.type==='measure'&&!score.measures[sel.m]){sel=null;renderChrome();return}
   hear(inst);
   inputCursor(true);
   if(!sel||sel.type!=='measure'||!sel.pos){toast('먼저 악보에서 시작할 위치를 누르세요');return}
@@ -2473,7 +2474,10 @@ pagesEl.addEventListener('pointerdown',e=>{
   if(hh){e.preventDefault();const kd=hh.dataset.hk||'cresc';if(hh.dataset.side==='l')crescStartDrag(e,svg,+hh.dataset.hh,kd);else crescDrag(e,svg,+hh.dataset.hh,kd);return}
   const fh=!inputMode&&e.target.closest('[data-fh]');
   if(fh){e.preventDefault();ftxResize(e,fh);return}
-  const elx=!inputMode&&e.target.closest('[data-el]');
+  // a mark (Ride →, accents, text…) can sit under a note glyph drawn later; when no notehead is hit, its hit area still counts
+  let elx=!inputMode&&e.target.closest('[data-el]');
+  if(!inputMode&&!elx&&!e.shiftKey){try{const hit=document.elementsFromPoint(e.clientX,e.clientY).find(n=>n.classList&&n.classList.contains('ehit'));
+    if(hit&&!headAt(+svg.dataset.p,svgPoint(svg,e)))elx=hit.closest('[data-el]')}catch(err){}}
   if(elx){
     e.preventDefault();const key=elx.dataset.el,o=elOwner(key);if(!o)return;
     const start=svgPoint(svg,e),tgt=o.kind==='note'?o.n:o.meas,base=(tgt.off&&tgt.off[o.t])||[0,0];
@@ -3555,7 +3559,7 @@ function wipePlayhead(px,W,H){const isG=i=>{const r=px[i],g=px[i+1],b=px[i+2],mx
     if(e-x<=14){const L1=x>0?(y*W+x-1)*4:-1,R1=e<W-1?(y*W+e+1)*4:-1;for(let k=x;k<=e;k++){const i=(y*W+k)*4;for(let c=0;c<3;c++)px[i+c]=L1>=0&&R1>=0?Math.min(px[L1+c],px[R1+c]):L1>=0?px[L1+c]:R1>=0?px[R1+c]:255}}x=e}}}
 async function analyzeVideo(file){
   const url=URL.createObjectURL(file),v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
-  const job={id:++jobSeq,file:null,url:null,status:'video',msg:'영상 여는 중…',open:false};queue.push(job);if(view!=='score')showView('score');showDock('cap');renderQueue();
+  const job={id:++jobSeq,file:null,url:null,status:'video',isVideo:true,msg:'영상 여는 중…',open:false};queue.push(job);if(view!=='score')showView('score');showDock('cap');renderQueue();
   const done=msg=>{job.status='ok';job.msg=msg;renderQueue();URL.revokeObjectURL(url)};
   try{await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=()=>rej(0);setTimeout(()=>rej(0),20000)})}
   catch(e){job.status='err';job.msg='이 영상은 열 수 없어요. mp4(H.264) 파일로 넣어 주세요';renderQueue();URL.revokeObjectURL(url);return}
@@ -3565,6 +3569,7 @@ async function analyzeVideo(file){
   const seek=t=>new Promise(res=>{let ok=false;const f=()=>{if(ok)return;ok=true;v.removeEventListener('seeked',f);res()};v.addEventListener('seeked',f);v.currentTime=t;setTimeout(f,3000)});
   const accepted=[];let prev=[],lines=0;const step=0.5;
   for(let t=0.1;t<dur;t+=step){
+    if(job.stop){done(`영상 분석을 멈췄어요 · 여기까지 ${lines}줄을 변환해요`);return}
     await seek(t);ctx.drawImage(v,0,0,W,H);
     const px=ctx.getImageData(0,0,W,H).data;wipePlayhead(px,W,H);const dk=darkMap(px,W,H),staves=findStaves(dk,W,H),now=[];
     staves.forEach((st,si)=>{
@@ -3785,9 +3790,9 @@ function jobStatText(j){
 function updateJobStat(j){const el=document.querySelector(`.job[data-j="${j.id}"] .jstat`);if(el)el.innerHTML=jobStatText(j)}
 function renderQueue(){
   $('#queue').innerHTML=queue.slice().reverse().map(j=>`<li class="job" data-j="${j.id}">
-    ${j.url?`<button class="thumb" data-a="big" aria-label="캡처 ${j.id} 원본 ${j.open?'접기':'크게 보기'}"><img src="${j.url}" alt=""></button>`:'<span class="thumb nopic">붙여넣음</span>'}
-    <div><div class="jtitle">캡처 ${j.id}</div><div class="jstat ${j.status}">${jobStatText(j)}</div></div>
-    <div class="jact">${j.status==='run'?'<button class="btn sm" data-a="stop">멈추기</button>':''}${j.status==='err'&&j.code!=='not_granted'?'<button class="btn sm" data-a="retry">다시 시도</button>':''}${j.status==='ok'?'<button class="btn sm" data-a="go">해당 마디로</button>'+(j.url&&j.via!=='manual'?'<button class="btn sm" data-a="retry">다시 변환</button>':''):''}${j.status!=='run'?'<button class="btn sm" data-a="rm">지우기</button>':''}</div>
+    ${j.url?`<button class="thumb" data-a="big" aria-label="캡처 ${j.id} 원본 ${j.open?'접기':'크게 보기'}"><img src="${j.url}" alt=""></button>`:`<span class="thumb nopic">${j.isVideo?'영상':'붙여넣음'}</span>`}
+    <div><div class="jtitle">${j.isVideo?'영상':'캡처'} ${j.id}</div><div class="jstat ${j.status}">${jobStatText(j)}</div></div>
+    <div class="jact">${j.status==='run'||j.status==='video'?'<button class="btn sm" data-a="stop">멈추기</button>':''}${j.status==='err'&&j.code!=='not_granted'?'<button class="btn sm" data-a="retry">다시 시도</button>':''}${j.status==='ok'&&!j.isVideo?'<button class="btn sm" data-a="go">해당 마디로</button>'+(j.url&&j.via!=='manual'?'<button class="btn sm" data-a="retry">다시 변환</button>':''):''}${j.status!=='run'&&j.status!=='video'?'<button class="btn sm" data-a="rm">지우기</button>':''}</div>
     ${j.open&&j.url?`<img class="big" src="${j.url}" alt="캡처 ${j.id} 원본">`:''}
   </li>`).join('');
 }
@@ -3797,7 +3802,7 @@ $('#queue').addEventListener('click',e=>{
   const a=e.target.closest('[data-a]');if(!a)return;
   switch(a.dataset.a){
     case 'big':j.open=!j.open;renderQueue();break;
-    case 'stop':j.ctl&&j.ctl.abort();break;
+    case 'stop':if(j.status==='video'){j.stop=true;j.msg='멈추는 중…';renderQueue()}else j.ctl&&j.ctl.abort();break;
     case 'retry':j.status='wait';j.msg='';j.range=null;renderQueue();processQueue();break;
     case 'go':if(j.range&&score.measures[j.range[0]-1])select({type:'measure',m:j.range[0]-1},true);break;
     case 'rm':if(j.url)URL.revokeObjectURL(j.url);queue.splice(queue.indexOf(j),1);renderQueue();break;
