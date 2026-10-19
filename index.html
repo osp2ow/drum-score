@@ -287,7 +287,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
 .hidst{stroke:var(--muted);stroke-width:.1;stroke-dasharray:.45 .35}
 .hidbox{stroke:var(--sel);stroke-width:.12;stroke-dasharray:.6 .4}
 .hhandle{cursor:ew-resize}
-.hhandle circle{fill:var(--paper);stroke:var(--sel);stroke-width:.2}
+.hhandle .hb{fill:var(--sel)} /* a small bar, so it can't be mistaken for an open hi-hat "o" */
 .paper-bg{fill:var(--paper)}
 .frame{fill:none;stroke:#9aa0aa;stroke-width:.1;stroke-dasharray:.6 .4}
 .brk{fill:none;stroke:var(--brk);stroke-width:.2}
@@ -1277,7 +1277,7 @@ function drawHairpin(h,sys,exp){
       sys._spanTop=Math.min(sys._spanTop??Infinity,y-0.7);
       if(L.mTop)for(const k of sys.ms)if(k>=h.a&&k<=h.e)L.mTop[k]=Math.min(L.mTop[k]??sys.top,y-0.7);
       body+=kind==='fade'?fadeLine(g.x1,g.x2,y,g.first):kind==='vib'?wavy(g.x1,g.x2,y):line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
-      if(!exp&&sel&&sel.type==='el'&&sel.key===kind+':'+h.a){const of=offOf(m,kind)||[0,0],hdl=(x,side)=>`<g class="hhandle" data-hh="${h.a}" data-hk="${kind}" data-side="${side}"><rect x="${r(x+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(x+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`;
+      if(!exp&&sel&&sel.type==='el'&&sel.key===kind+':'+h.a){const of=offOf(m,kind)||[0,0],hdl=(x,side)=>`<g class="hhandle" data-hh="${h.a}" data-hk="${kind}" data-side="${side}"><rect x="${r(x+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><rect class="hb" x="${r(x+of[0]-0.22)}" y="${r(y+of[1]-0.95)}" width="0.44" height="1.9" rx="0.18"/></g>`;
         if(g.first)o+=hdl(g.x1,'l');if(g.last)o+=hdl(g.x2,'r')}}
   }
   return body?elG(kind+':'+h.a,offOf(m,kind),body,hb)+o:'';
