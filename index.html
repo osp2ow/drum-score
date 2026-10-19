@@ -105,6 +105,7 @@ kbd{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:10.5px;c
 .cell .fl{fill:currentColor}
 .cell .st{stroke:color-mix(in srgb,currentColor 35%,transparent);stroke-width:.1}
 .hint{color:var(--muted);font-size:12.5px;margin:0}
+.qbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--chrome-2);font-size:12.5px}
 .scrow{display:flex;align-items:center;gap:4px}.scrow .ib{border-color:var(--line);min-height:28px;min-width:30px;font-size:15px;color:var(--fg)}
 #scPct{min-width:46px;text-align:center;font-variant-numeric:tabular-nums;color:var(--fg);font-size:13px}#scAuto{font-size:12px!important;margin-left:4px}
 .note{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:12.5px;margin:0}
@@ -397,6 +398,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
           </div>
           <p class="note" id="importUnavailable" hidden>이미지 변환은 Claude 앱이나 claude.ai에서 이 페이지를 열었을 때 쓸 수 있어요. 지금은 직접 입력과 편집만 할 수 있어요.</p>
           <p class="hint">4마디씩 캡처하면 가장 정확해요. 썸네일을 누르면 원본이 크게 열려서 악보와 비교하며 고칠 수 있어요.</p>
+          <div class="qbar" id="qBar" hidden><span id="qBarTxt"></span><button class="btn sm" id="qStopAll">변환 모두 멈추기</button></div>
           <ol class="queue" id="queue"></ol>
         </div>
         <div class="dockbody" id="dock-lay" hidden>
@@ -3559,7 +3561,7 @@ function wipePlayhead(px,W,H){const isG=i=>{const r=px[i],g=px[i+1],b=px[i+2],mx
     if(e-x<=14){const L1=x>0?(y*W+x-1)*4:-1,R1=e<W-1?(y*W+e+1)*4:-1;for(let k=x;k<=e;k++){const i=(y*W+k)*4;for(let c=0;c<3;c++)px[i+c]=L1>=0&&R1>=0?Math.min(px[L1+c],px[R1+c]):L1>=0?px[L1+c]:R1>=0?px[R1+c]:255}}x=e}}}
 async function analyzeVideo(file){
   const url=URL.createObjectURL(file),v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
-  const job={id:++jobSeq,file:null,url:null,status:'video',isVideo:true,msg:'영상 여는 중…',open:false};queue.push(job);if(view!=='score')showView('score');showDock('cap');renderQueue();
+  const job={id:++jobSeq,file:null,url:null,status:'video',isVideo:true,msg:'영상 여는 중…',open:false,sid:score.id};queue.push(job);if(view!=='score')showView('score');showDock('cap');renderQueue();
   const done=msg=>{job.status='ok';job.msg=msg;renderQueue();URL.revokeObjectURL(url)};
   try{await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=()=>rej(0);setTimeout(()=>rej(0),20000)})}
   catch(e){job.status='err';job.msg='이 영상은 열 수 없어요. mp4(H.264) 파일로 넣어 주세요';renderQueue();URL.revokeObjectURL(url);return}
@@ -3569,7 +3571,8 @@ async function analyzeVideo(file){
   const seek=t=>new Promise(res=>{let ok=false;const f=()=>{if(ok)return;ok=true;v.removeEventListener('seeked',f);res()};v.addEventListener('seeked',f);v.currentTime=t;setTimeout(f,3000)});
   const accepted=[];let prev=[],lines=0;const step=0.5;
   for(let t=0.1;t<dur;t+=step){
-    if(job.stop){done(`영상 분석을 멈췄어요 · 여기까지 ${lines}줄을 변환해요`);return}
+    if(job.stop){done(job.stopAll?'영상 변환을 멈췄어요':`영상 분석을 멈췄어요 · 여기까지 ${lines}줄을 변환해요`);return}
+    if(job.sid!==score.id){job.status='err';job.msg='다른 악보를 열어서 영상 분석을 멈췄어요';renderQueue();URL.revokeObjectURL(url);return}
     await seek(t);ctx.drawImage(v,0,0,W,H);
     const px=ctx.getImageData(0,0,W,H).data;wipePlayhead(px,W,H);const dk=darkMap(px,W,H),staves=findStaves(dk,W,H),now=[];
     staves.forEach((st,si)=>{
@@ -3582,7 +3585,7 @@ async function analyzeVideo(file){
       if(accepted.slice(-Math.max(1,staves.length)).some(a=>same(a,sig)))return;
       accepted.push(sig);lines++;
       const cc=document.createElement('canvas');cc.width=W;cc.height=bot-top;cc.getContext('2d').drawImage(c,0,top,W,bot-top,0,0,W,bot-top);
-      cc.toBlob(b=>{if(b){const f=new File([b],`영상 ${Math.floor(t/60)}분${String(Math.floor(t%60)).padStart(2,'0')}초.png`,{type:'image/png'});enqueue([f])}},'image/png');
+      cc.toBlob(b=>{if(b){const f=new File([b],`영상 ${Math.floor(t/60)}분${String(Math.floor(t%60)).padStart(2,'0')}초.png`,{type:'image/png'});enqueue([f],{sid:job.sid,vid:job.id})}},'image/png');
     });
     prev=now;
     if(Math.round(t/step)%6===0){job.msg=`영상에서 악보 줄 찾는 중 · ${Math.min(100,Math.round(t/dur*100))}% · 지금까지 ${lines}줄`;updateJobStat(job)}
@@ -3590,12 +3593,12 @@ async function analyzeVideo(file){
   done(lines?`영상 분석 끝 · 악보 ${lines}줄을 순서대로 변환해요`:'영상에서 악보 줄을 찾지 못했어요');
 }
 const queue=[];let busy=false,jobSeq=0;
-function enqueue(files){
+function enqueue(files,from){
   const vids=[...files].filter(f=>f&&f.type&&f.type.startsWith('video/'));
   for(const v of vids)videoQueue.push(v);if(vids.length)runVideos();
   const imgs=[...files].filter(f=>f&&f.type&&f.type.startsWith('image/'));
   if(!imgs.length)return vids.length>0;
-  for(const f of imgs)queue.push({id:++jobSeq,file:f,url:URL.createObjectURL(f),status:'wait',msg:'',open:false});
+  for(const f of imgs)queue.push({id:++jobSeq,file:f,url:URL.createObjectURL(f),status:'wait',msg:'',open:false,sid:from&&from.sid||score.id,vid:from&&from.vid||null});
   if(view!=='score')showView('score');
   showDock('cap');renderQueue();processQueue();
   return true;
@@ -3671,7 +3674,9 @@ function sampleErr(e){
 }
 async function processQueue(){
   if(busy)return;
-  const job=queue.find(j=>j.status==='wait');if(!job)return;
+  let job;
+  while((job=queue.find(j=>j.status==='wait'))&&job.sid&&job.sid!==score.id){job.status='err';job.code='moved';job.msg='다른 악보를 열어서 변환하지 않았어요 · 이 악보에 넣으려면 다시 시도';job.sid=null}
+  renderQueue();if(!job)return;
   busy=true;job.status='run';job.t0=Date.now();job.found=0;renderQueue();
   const s=await samplePromise;
   job.ctl=new AbortController();
@@ -3731,6 +3736,12 @@ function simplifyOpenHH(ms){
   }
 }
 function applyImport(job,data){
+  if(job.sid&&job.sid!==score.id){job.status='err';job.code='moved';job.msg='다른 악보를 열어서 넣지 않았어요 · 이 악보에 넣으려면 다시 시도';job.sid=null;return}
+  const before=score.id;applyImport0(job,data);
+  // the score got a new id (first capture into a blank score, or a new song): the rest of the same batch follows it
+  if(score.id!==before)for(const j of queue)if(j.sid===before)j.sid=score.id;
+}
+function applyImport0(job,data){
   if(!data||typeof data!=='object'){job.status='err';job.msg='악보를 읽지 못했어요. 다시 시도해 주세요.';return}
   if(data.error){job.status='err';job.msg='드럼 악보를 찾지 못했어요: '+String(data.error).slice(0,80);return}
   const raw=Array.isArray(data.measures)?data.measures:[];
@@ -3788,22 +3799,29 @@ function jobStatText(j){
   return esc(j.msg);
 }
 function updateJobStat(j){const el=document.querySelector(`.job[data-j="${j.id}"] .jstat`);if(el)el.innerHTML=jobStatText(j)}
+function stopVideo(v){if(v.status==='video'){v.stop=true;v.stopAll=true;v.msg='멈추는 중…'}
+  for(const j of queue){if(j.vid!==v.id)continue;if(j.status==='wait'){j.status='err';j.code='cancelled';j.msg='멈췄어요'}else if(j.status==='run'&&j.ctl)j.ctl.abort()}
+  if(v.status!=='video'){v.msg='영상 변환을 멈췄어요'}renderQueue()}
+function stopAllJobs(){for(const j of queue){if(j.status==='video'){j.stop=true;j.stopAll=true;j.msg='멈추는 중…'}else if(j.status==='wait'){j.status='err';j.code='cancelled';j.msg='멈췄어요'}else if(j.status==='run'&&j.ctl)j.ctl.abort()}renderQueue()}
 function renderQueue(){
+  {const busyN=queue.filter(j=>j.status==='wait'||j.status==='run'||j.status==='video').length,bar=$('#qBar');
+    if(bar){bar.hidden=!busyN;$('#qBarTxt').textContent=busyN?`변환 대기·진행 ${busyN}개`:''}}
   $('#queue').innerHTML=queue.slice().reverse().map(j=>`<li class="job" data-j="${j.id}">
     ${j.url?`<button class="thumb" data-a="big" aria-label="캡처 ${j.id} 원본 ${j.open?'접기':'크게 보기'}"><img src="${j.url}" alt=""></button>`:`<span class="thumb nopic">${j.isVideo?'영상':'붙여넣음'}</span>`}
     <div><div class="jtitle">${j.isVideo?'영상':'캡처'} ${j.id}</div><div class="jstat ${j.status}">${jobStatText(j)}</div></div>
-    <div class="jact">${j.status==='run'||j.status==='video'?'<button class="btn sm" data-a="stop">멈추기</button>':''}${j.status==='err'&&j.code!=='not_granted'?'<button class="btn sm" data-a="retry">다시 시도</button>':''}${j.status==='ok'&&!j.isVideo?'<button class="btn sm" data-a="go">해당 마디로</button>'+(j.url&&j.via!=='manual'?'<button class="btn sm" data-a="retry">다시 변환</button>':''):''}${j.status!=='run'&&j.status!=='video'?'<button class="btn sm" data-a="rm">지우기</button>':''}</div>
+    <div class="jact">${j.status==='run'||j.status==='video'||(j.isVideo&&queue.some(x=>x.vid===j.id&&(x.status==='wait'||x.status==='run')))?'<button class="btn sm" data-a="stop">멈추기</button>':''}${j.status==='err'&&j.code!=='not_granted'?'<button class="btn sm" data-a="retry">다시 시도</button>':''}${j.status==='ok'&&!j.isVideo?'<button class="btn sm" data-a="go">해당 마디로</button>'+(j.url&&j.via!=='manual'?'<button class="btn sm" data-a="retry">다시 변환</button>':''):''}${j.status!=='run'&&j.status!=='video'?'<button class="btn sm" data-a="rm">지우기</button>':''}</div>
     ${j.open&&j.url?`<img class="big" src="${j.url}" alt="캡처 ${j.id} 원본">`:''}
   </li>`).join('');
 }
 setInterval(()=>{const j=queue.find(x=>x.status==='run');if(j)updateJobStat(j)},1000);
+$('#qStopAll').addEventListener('click',stopAllJobs);
 $('#queue').addEventListener('click',e=>{
   const li=e.target.closest('.job');if(!li)return;const j=queue.find(x=>x.id===+li.dataset.j);if(!j)return;
   const a=e.target.closest('[data-a]');if(!a)return;
   switch(a.dataset.a){
     case 'big':j.open=!j.open;renderQueue();break;
-    case 'stop':if(j.status==='video'){j.stop=true;j.msg='멈추는 중…';renderQueue()}else j.ctl&&j.ctl.abort();break;
-    case 'retry':j.status='wait';j.msg='';j.range=null;renderQueue();processQueue();break;
+    case 'stop':if(j.isVideo)stopVideo(j);else j.ctl&&j.ctl.abort();break;
+    case 'retry':j.status='wait';j.msg='';j.range=null;j.sid=score.id;renderQueue();processQueue();break;
     case 'go':if(j.range&&score.measures[j.range[0]-1])select({type:'measure',m:j.range[0]-1},true);break;
     case 'rm':if(j.url)URL.revokeObjectURL(j.url);queue.splice(queue.indexOf(j),1);renderQueue();break;
   }
