@@ -658,6 +658,7 @@ function normMeasure(m,ti){
   if(Array.isArray(m.rb)){const rb=[...new Set(m.rb.map(Number).filter(x=>x>0&&x<ti.beats).map(x=>Math.round(x*1e6)/1e6))].sort((a,c)=>a-c);if(rb.length)o.rb=rb}
   const wfv=Math.round(+m.wf*100)/100;if(Number.isFinite(wfv)&&wfv>=0.4&&wfv<=3&&wfv!==1)o.wf=wfv;
   const tp=validTempo(m.tempo);if(tp)o.tempo=tp;
+  if(Number.isInteger(+m.fade)&&+m.fade>0){o.fade=Math.min(64,+m.fade);const fw=Math.round(+m.fw*100)/100;if(Number.isFinite(fw)&&fw)o.fw=Math.max(-60,Math.min(20,fw));const fs=Math.round(+m.fs*100)/100;if(Number.isFinite(fs)&&fs)o.fs=Math.max(-10,Math.min(60,fs))}
   if(Number.isInteger(+m.vib)&&+m.vib>0){o.vib=Math.min(64,+m.vib);const vw=Math.round(+m.vw*100)/100;if(Number.isFinite(vw)&&vw)o.vw=Math.max(-60,Math.min(20,vw));const vs=Math.round(+m.vs*100)/100;if(Number.isFinite(vs)&&vs)o.vs=Math.max(-10,Math.min(60,vs))}
   if(Number.isInteger(+m.cresc)&&+m.cresc>0){o.cresc=Math.min(64,+m.cresc);const cw=Math.round(+m.cw*100)/100;if(Number.isFinite(cw)&&cw)o.cw=Math.max(-60,Math.min(20,cw));const cs=Math.round(+m.cs*100)/100;if(Number.isFinite(cs)&&cs)o.cs=Math.max(-10,Math.min(60,cs))}
   if(Number.isInteger(+m.lineN)&&+m.lineN>=1&&+m.lineN<=12)o.lineN=+m.lineN;
@@ -952,7 +953,7 @@ function computeLayout(){
   const NAT=score.measures.map((m,i)=>natural(i,VL[i][0],VL[i][1],TIS[i]));
   const CLEF_W=3.3, TS_W=tsWidthOf(score.ts)+1.4;
   // crescendo ranges
-  const hairs=[];score.measures.forEach((m,i)=>{if(m.cresc)hairs.push({a:i,e:Math.min(N-1,i+m.cresc-1),k:'cresc'});if(m.vib)hairs.push({a:i,e:Math.min(N-1,i+m.vib-1),k:'vib'})});
+  const hairs=[];score.measures.forEach((m,i)=>{if(m.cresc)hairs.push({a:i,e:Math.min(N-1,i+m.cresc-1),k:'cresc'});if(m.vib)hairs.push({a:i,e:Math.min(N-1,i+m.vib-1),k:'vib'});if(m.fade)hairs.push({a:i,e:Math.min(N-1,i+m.fade-1),k:'fade'})});
   // automatic: pick one measures-per-line count for the whole score so all measures stay equal
   const pack=()=>{
   const availAll=CONTENT_W-CLEF_W-TS_W;
@@ -1197,7 +1198,10 @@ function renderSystem(sys,exp){
   return o;
 }
 // drag the end of a crescendo: it can grow or shrink inside its line and spill into the next measures
-const SPK={cresc:{n:'cresc',w:'cw',s:'cs'},vib:{n:'vib',w:'vw',s:'vs'}};
+const SPK={cresc:{n:'cresc',w:'cw',s:'cs'},vib:{n:'vib',w:'vw',s:'vs'},fade:{n:'fade',w:'fw',s:'fs'}};
+// "fade out" followed by a dotted line to where the fade ends
+function fadeLine(x1,x2,y,first){const st=txs('ds'),fs=st.sz,tw=first?textW('fade out',fs,st.w,fontCss())*1.02:0;let o=first?`<text class="tx t-ds" x="${r(x1)}" y="${r(y+fs*0.32)}">fade out</text>`:'';
+  for(let x=x1+tw+(first?0.9:0.2);x<=x2+1e-6;x+=1.6)o+=`<circle class="fl" cx="${r(x)}" cy="${r(y+fs*0.05)}" r="0.19"/>`;return o}
 function crescDrag(e,svg,a,kind='cresc'){const K=SPK[kind];
   const m=score.measures[a];if(!m||!m[K.n])return;
   const orig={n:m[K.n],w:m[K.w]},of=offOf(m,kind)||[0,0];
@@ -1272,7 +1276,7 @@ function drawHairpin(h,sys,exp){
     if(g.s===sys){let mt=sys.top;for(const k of sys.ms)if(k>=h.a&&k<=h.e&&L.mTop&&L.mTop[k]!=null)mt=Math.min(mt,L.mTop[k]);const y=Math.min(sys.top-4.6,mt-1.5);
       sys._spanTop=Math.min(sys._spanTop??Infinity,y-0.7);
       if(L.mTop)for(const k of sys.ms)if(k>=h.a&&k<=h.e)L.mTop[k]=Math.min(L.mTop[k]??sys.top,y-0.7);
-      body+=kind==='vib'?wavy(g.x1,g.x2,y):line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
+      body+=kind==='fade'?fadeLine(g.x1,g.x2,y,g.first):kind==='vib'?wavy(g.x1,g.x2,y):line(g.x1,y-o1,g.x2,y-o2,0.12)+line(g.x1,y+o1,g.x2,y+o2,0.12);hb=[g.x1,y-1,g.x2-g.x1,2];
       if(!exp&&sel&&sel.type==='el'&&sel.key===kind+':'+h.a){const of=offOf(m,kind)||[0,0],hdl=(x,side)=>`<g class="hhandle" data-hh="${h.a}" data-hk="${kind}" data-side="${side}"><rect x="${r(x+of[0]-1)}" y="${r(y+of[1]-1.4)}" width="2" height="2.8" fill="transparent"/><circle cx="${r(x+of[0])}" cy="${r(y+of[1])}" r="0.5"/></g>`;
         if(g.first)o+=hdl(g.x1,'l');if(g.last)o+=hdl(g.x2,'r')}}
   }
@@ -1661,10 +1665,10 @@ function elOwner(key){
   if(t==='txt'){const [mi,k]=id.split('_').map(Number),m=score.measures[mi],tx=m&&m.texts&&m.texts[k];return tx?{kind:'measure',t,m:mi,k,meas:tx,mm:m}:null}
   if(['acc','open','ar','tr','g','stk','cl','oc','rd'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
   const mi=+id,m=score.measures[mi];if(!m)return null;
-  const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,vib:m.vib,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
+  const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,vib:m.vib,fade:m.fade,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
   return ok?{kind:'measure',t,m:mi,meas:m}:null;
 }
-const EL_NAME={vib:'비브라토',txt:'텍스트',ftx:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
+const EL_NAME={vib:'비브라토',fade:'fade out',txt:'텍스트',ftx:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
 function setOffset(key,off){
   if(key.startsWith('ftx:')){const tx=score.ftexts&&score.ftexts[+key.slice(4)];if(!tx||!off)return;
     commit(()=>{tx.x=Math.max(0,Math.min(1,tx.x+off[0]/PAGE_W));tx.y=Math.max(0.01,Math.min(1,tx.y+off[1]/PAGE_H))});return}
@@ -1696,7 +1700,7 @@ function deleteEl(key){
       sel={type:'note',m:o.m,id:o.n.id};
     }else{
       const m=o.meas,mi=o.m;
-      const fx={shuf:()=>delete m.shuffle,volta:()=>delete m.volta,cresc:()=>{delete m.cresc;delete m.cw;delete m.cs},vib:()=>{delete m.vib;delete m.vw;delete m.vs},sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
+      const fx={shuf:()=>delete m.shuffle,volta:()=>delete m.volta,cresc:()=>{delete m.cresc;delete m.cw;delete m.cs},vib:()=>{delete m.vib;delete m.vw;delete m.vs},fade:()=>{delete m.fade;delete m.fw;delete m.fs},sec:()=>sectionOn(mi,''),segno:()=>delete m.segno,coda:()=>delete m.coda,tempo:()=>delete m.tempo,ds:()=>delete m.ds,rs:()=>{m.repeatStart=false},re:()=>{m.repeatEnd=false},dbl:()=>{delete m.barEnd;delete m.autoDbl},pgbrk:()=>delete m.pageBreak,lnbrk:()=>delete m.lineBreak}[o.t];if(fx)fx();
       if(o.t==='ts'){const prev=tsAt(mi-1);setTimeout(()=>setTsFrom(mi,prev),0)}
       if(m.off)delete m.off[o.t];
       sel={type:'measure',m:mi};
@@ -2225,7 +2229,7 @@ const PALETTE=[
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
   {cat:'템포',items:[{id:'shuffle',label:'셔플',icon:svgI(shuffleMark(0.2,6.2).replace(/class="tx t-tempo"/,'class="tx" style="font-size:2.2px"'),'0 0 9.4 8')},...[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))]},
   {cat:'텍스트',items:[{id:'text',label:'텍스트 상자 (T)',icon:svgI(`<rect class="ln" x="1.2" y="1.8" width="7.6" height="4.6" rx=".5" fill="none" stroke-width=".22" stroke-dasharray=".6 .4"/><text class="tx" x="5" y="5.1" text-anchor="middle" style="font-size:2.6px;font-weight:600">Abc</text>`)}]},
-  {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)},{id:'vib',label:'비브라토',icon:svgI(wavy(1,9,4).replace('stroke-width="0.17"','stroke-width="0.3"'))}]},
+  {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)},{id:'vib',label:'비브라토',icon:svgI(wavy(1,9,4).replace('stroke-width="0.17"','stroke-width="0.3"'))},{id:'fade',label:'fade out',icon:svgI(`<text class="tx" x=".6" y="4.6" style="font-size:2.4px;font-style:italic">fade</text><circle class="fl" cx="6.4" cy="4" r=".28"/><circle class="fl" cx="7.6" cy="4" r=".28"/><circle class="fl" cx="8.8" cy="4" r=".28"/>`)}]},
   {cat:'아티큘레이션',items:[
     {id:'accent',label:'악센트',icon:svgI(T(3.6,4.9,G.accA,5))},
     {id:'hho',label:'오픈 하이햇',icon:hhIcon('o')},
@@ -2395,6 +2399,7 @@ function applyPalette(id){
   if(id.startsWith('tempo:')){const v=+id.slice(6);commit(()=>{const m=score.measures[a];if(m.tempo===v)delete m.tempo;else m.tempo=v});if(score.measures[a].tempo)setTimeout(()=>openTempo(a),30);return}
   if(id==='cresc'){const span=b-a+1;commit(()=>{const m=score.measures[a];if(m.cresc===span)delete m.cresc;else m.cresc=span});return}
   if(id==='vib'){const span=b-a+1;commit(()=>{const m=score.measures[a];if(m.vib===span){delete m.vib;delete m.vw;delete m.vs}else m.vib=span});if(score.measures[a].vib)select({type:'el',key:'vib:'+a,m:a});return}
+  if(id==='fade'){const span=b-a+1;commit(()=>{const m=score.measures[a];if(m.fade===span){delete m.fade;delete m.fw;delete m.fs}else m.fade=span});if(score.measures[a].fade)select({type:'el',key:'fade:'+a,m:a});return}
   const flag={rs:['repeatStart',a],re:['repeatEnd',b],segno:['segno',a],coda:['coda',a],ds:['ds',b],pgbrk:['pageBreak',b],lnbrk:['lineBreak',b]}[id];
   if(flag){const [k,mi]=flag;commit(()=>{const m=score.measures[mi];if(m[k])delete m[k];else m[k]=true;if(k==='repeatStart'||k==='repeatEnd')m[k]=!!m[k]});return}
   if(id==='dbl'){commit(()=>{const m=score.measures[b];delete m.autoDbl;if(m.barEnd==='double')delete m.barEnd;else m.barEnd='double'});return}
@@ -2841,7 +2846,7 @@ document.addEventListener('keydown',e=>{
     commit(()=>{const m=score.measures[a];if(!m.volta)return false;const n=Math.max(1,Math.min(score.measures.length-a,m.volta.n+d));if(n===m.volta.n)return false;m.volta.n=n});
     const m=score.measures[a];if(m.volta)toast(`괄호 길이 ${m.volta.n}마디`);return;
   }
-  if((code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'||k==='{'||k==='}')&&sel&&sel.type==='el'&&(sel.key.startsWith('cresc:')||sel.key.startsWith('vib:'))){
+  if((code==='BracketLeft'||code==='BracketRight'||k==='['||k===']'||k==='{'||k==='}')&&sel&&sel.type==='el'&&(sel.key.startsWith('cresc:')||sel.key.startsWith('vib:')||sel.key.startsWith('fade:'))){
     e.preventDefault();const [kd,ai]=sel.key.split(':'),K=SPK[kd],a=+ai,right=(code==='BracketRight'||k===']'||k==='}');
     // [ ] move the end, Shift+[ ] move the start
     if(e.shiftKey)commit(()=>{const m=score.measures[a];const v=Math.round(Math.max(-10,Math.min(60,(m[K.s]||0)+(right?0.5:-0.5)))*10)/10;if(v)m[K.s]=v;else delete m[K.s]});
