@@ -1506,9 +1506,9 @@ function drawChord(it,up,top,mi,selId,exp){
     if(fl>=1&&!it.beamed)o+=glyph(it.stemX-STEM_W/2,it.tip,up?G.flagUp[fl]:G.flagDn[fl]);
     const trn=it.notes.find(n=>n.tr);if(trn){const yc=up?(it.yTop-0.3+it.tip+(it.beamed?0.5*(it.dur.flags||1):0))/2:(it.yBot+0.3+it.tip-(it.beamed?0.5*(it.dur.flags||1):0))/2;o+=elG('tr:'+trn.id,offOf(trn,'tr'),glyph(it.stemX,yc,G.trem),[it.stemX-0.75,yc-0.95,1.5,1.9])}
   }
-  // cymbals, and snare + floor tom hit together, always carry an accent
+  // cymbals, snare + floor tom hit together, and a flammed snare always carry an accent
   const sf=it.notes.some(n=>n.i==='snare')&&it.notes.some(n=>n.i==='ftom'),auto=!it.notes.some(n=>n.na);
-  const isAcc=n=>n.a==='accent'||(auto&&(n.i==='crash'||(sf&&(n.i==='snare'||n.i==='ftom'))));
+  const isAcc=n=>n.a==='accent'||(auto&&(n.i==='crash'||(sf&&(n.i==='snare'||n.i==='ftom'))||(n.i==='snare'&&n.g==='flam'&&n.a!=='ghost')));
   const acc=it.notes.some(isAcc),open=it.notes.some(n=>n.i==='hho');
   let ay=up?Math.min(it.tip,it.yTop)-0.65:Math.max(it.tip,it.yBot)+0.65;
   if(acc){const an=it.notes.find(isAcc),ax=it.x+HEAD_W/2-0.72;o+=elG('acc:'+an.id,offOf(an,'acc'),glyph(ax,ay,up?G.accA:G.accB),[ax-0.15,up?ay-1.1:ay-0.15,1.75,1.25]);ay+=up?-1.25:1.25}
@@ -2145,9 +2145,9 @@ function setInstOn(m,note,inst){
   note.i=inst;return true;
 }
 function setInst(id,inst){commit(()=>{const f=findNote(id);if(!f)return false;return setInstOn(score.measures[f.m],f.n,inst)})}
-// accents: cymbals and snare+floor tom get one automatically; deleting it marks the chord with na (no auto accent)
+// accents: cymbals, snare+floor tom and a flammed snare get one automatically; deleting it marks the chord with na (no auto accent)
 const chordOf=(mi,n)=>score.measures[mi].notes.filter(x=>x.b===n.b&&x.s===n.s);
-const autoAcc=ch=>ch.some(x=>x.i==='crash')||(ch.some(x=>x.i==='snare')&&ch.some(x=>x.i==='ftom'));
+const autoAcc=ch=>ch.some(x=>x.i==='crash')||(ch.some(x=>x.i==='snare')&&ch.some(x=>x.i==='ftom'))||ch.some(x=>x.i==='snare'&&x.g==='flam'&&x.a!=='ghost');
 const accShown=ch=>ch.some(x=>x.a==='accent')||(autoAcc(ch)&&!ch.some(x=>x.na));
 function setChordAcc(mi,n,on){const ch=chordOf(mi,n);
   if(on){n.a='accent';ch.forEach(x=>delete x.na)}
