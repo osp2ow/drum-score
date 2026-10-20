@@ -3693,6 +3693,7 @@ Rhythm: write each measure as its STEMS in time order, with the note value of ea
 - The values of each voice must add up to exactly one whole measure (4/4 = 4 quarters, 3/4 = 3, 6/8 = 6 eighths, 12/8 = 12 eighths). Check every measure; if a sum is off, look at the beams again.
 - In "n" a drum is its name ("hh") or, when it carries marks, an object like {"i":"hh","a":"accent"}. Optional marks: "h": "R" or "L" when a sticking letter is printed under that note (put it on one hand note of the chord); "a": "accent" for > or ^, "ghost" for a note in parentheses; "g": "flam" when one small grace note sits right before it, "drag" when two do (never list grace notes as items); "tr": 1 when a slash crosses its stem (double stroke); "ar": 1 when a small arrow (->) is printed above it; "cl": 1 for a "+" above a hi-hat.
 - On an item, optional "w": the lyric word or syllable printed under that stem.
+- Words printed where there is NO drum stem above them (under a whole rest, a long rest or between notes) are still lyrics and must not be left out: put them in the measure's "words": [{"w": "syllable", "beat": 2.5}], where "beat" is where the word sits across the measure (1 = the start of beat 1, 2.5 = halfway through beat 2), judged from its left-right position. A measure with a whole rest and words under it is {"up": [{"d":"1","r":1}], "words": [...]}.
 - Per measure, optional: "volta": "1." (or "2.") on the first measure under a 1st/2nd ending bracket, with "voltaLen": how many measures the bracket covers; "simile": true with "up": [] for a measure-repeat sign (%); "repeatStart"/"repeatEnd": true ONLY for a real repeat barline, which always has two dots (:) in the middle spaces beside a thick and a thin line. The percussion clef at the start of every line (two short thick vertical bars) is NOT a repeat sign, and neither is the edge of the picture or a plain or double barline: no dots means no repeat; "barEnd": "double" for a thin double barline at the end; "section" for boxed or bold section text above it (e.g. "A", "Verse", "Fill"); "segno": true / "coda": true for those signs above it; "ds": true for "D.S." written over it; "tempo": quarter-note BPM ONLY when a real tempo mark is printed (a note symbol with "=" and a number, like ♩ = 120, or a number with "BPM"); a lone number, often small or italic, at the start of a line above the staff is the MEASURE NUMBER, never a tempo; "cresc": number of measures a crescendo hairpin (<) starting in this measure spans.
 
 ${part?partNote(part)+'The JSON (after those lines) must have this shape:':'Reply with only JSON in this shape:'}
@@ -3772,12 +3773,14 @@ function seqMeasure(rm,ti){
       if(st.w&&t<full)words.push({t,w:str(st.w)});
       t+=d}
     if(t!==full)problems.push(`${vn} voice adds up to ${Math.round(t/48*100)/100} quarters instead of ${Math.round(full/48*100)/100}`)});
+  // words with no stem of their own (under a whole rest...): placed by where they sit in the measure, on the 16th grid
+  if(Array.isArray(rm.words))for(const wd of rm.words){if(!wd||!wd.w)continue;const bt16=bt/4,t=Math.round(((+wd.beat||1)-1)*bt/bt16)*bt16;if(t>=0&&t<full&&!words.some(x=>x.t===t))words.push({t,w:str(wd.w)})}
   const all=[...on.keys(),...words.map(w=>w.t)],divs=[];
   for(let b=0;b<ti.beats;b++){const offs=all.filter(t=>t>=b*bt&&t<(b+1)*bt).map(t=>t-b*bt);
     divs.push(ti.divs.slice().sort((x,y)=>x-y).find(D=>offs.every(o=>Math.abs(o*D/bt-Math.round(o*D/bt))<1e-6))||ti.divs[ti.divs.length-1])}
   const notes=[];for(const [t,ns] of on){const b=Math.floor(t/bt),D=divs[b],sl=Math.min(D-1,Math.round((t-b*bt)*D/bt));for(const n of ns)notes.push({...n,b,s:sl})}
   const lyrics=words.map(w=>{const b=Math.floor(w.t/bt),D=divs[b];return {b,s:Math.min(D-1,Math.round((w.t-b*bt)*D/bt)),t:w.w}});
-  const m={...rm,divs,notes,lyrics:[...(Array.isArray(rm.lyrics)?rm.lyrics:[]),...lyrics]};delete m.up;delete m.down;delete m.seq;
+  const m={...rm,divs,notes,lyrics:[...(Array.isArray(rm.lyrics)?rm.lyrics:[]),...lyrics]};delete m.up;delete m.down;delete m.seq;delete m.words;
   return {m,problems};
 }
 // what is wrong with a reading (for one more look): sums that don't fill the measure, a wrong number of measures
