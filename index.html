@@ -439,8 +439,9 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
             <kbd>N</kbd><span>음표 입력 모드 — 길이를 고르고 단축키를 누르면 찍히고 다음 칸으로 넘어가요. Shift+단축키는 방금 찍은 자리에 겹쳐요</span>
             <kbd>클릭+단축키</kbd><span>음표를 누르고 단축키 → 그 음표가 새 악기로 바뀌어요. 쉼표를 누르고 단축키 → 쉼표 자리에 음표가 들어가요</span>
             <kbd>Shift+단축키</kbd><span>선택한 음표에 그 악기를 겹쳐 더해요 (입력 모드에서는 방금 찍은 자리에 겹쳐요)</span>
-            <kbd>← →</kbd><span>커서 이동 / 이전·다음 음표</span>
-            <kbd>↑ ↓</kbd><span>선택한 음표를 위·아래 악기로 바꾸기</span>
+            <kbd>← →</kbd><span>커서 이동 / 음표를 고른 뒤: 같은 종류끼리 이전·다음 (심벌류 · 스네어·탐 · 킥·페달)</span>
+            <kbd>↑ ↓</kbd><span>음표·쉼표를 고른 뒤: 모든 음표와 쉼표를 차례로 이전·다음</span>
+            <kbd>Shift+↑ ↓</kbd><span>선택한 음표를 위·아래 악기로 바꾸기</span>
             <kbd>Shift+V</kbd><span>악센트 켜기 / 끄기</span>
             <kbd>Z</kbd><span>고스트 노트 켜기 / 끄기</span>
             <kbd>기호 끌기</kbd><span>악센트·크레센도·템포 등 기호는 눌러서 고르고 끌어서 옮겨요. 고른 뒤 방향키로 조금씩, Del로 지우기</span>
@@ -1817,6 +1818,7 @@ function validateSel(){
   else if(sel.type==='measure'){sel.m=Math.min(sel.m,N-1)}
   else if(sel.type==='range'){sel.b=Math.min(sel.b,N-1);sel.a=Math.min(sel.a,sel.b);sel.m=sel.a}
 }
+const NAV_GROUP={hh:'cym',hho:'cym',ride:'cym',crash:'cym',snare:'sn',xstick:'sn',tom1:'sn',tom2:'sn',ftom:'sn',kick:'ft',hhp:'ft'};
 function orderedNotes(){
   const out=[];
   score.measures.forEach((m,mi)=>{if(m.simile)return;m.notes.forEach(n=>out.push({mi,n,t:n.b+n.s/m.divs[n.b]}))});
@@ -2901,9 +2903,14 @@ document.addEventListener('keydown',e=>{
       // in a busy measure one missing note is easy to miss: say what happened and how to empty the whole measure
       if(score.measures[mi]&&score.measures[mi].notes.length)toast('음표 1개를 지웠어요 · 마디 전체를 비우려면 Esc 다음 Backspace')}
     else if(sel){e.preventDefault();const ms=selMeasures();clearMeasures(ms);toast(ms.length>1?`마디 ${ms[0]+1}–${ms[ms.length-1]+1}을 비웠어요`:`마디 ${ms[0]+1}을 비웠어요`)}return}
-  if(k==='ArrowUp'||k==='ArrowDown'){if(sn){e.preventDefault();const i=UP_ORDER.indexOf(sn.n.i),j=i+(k==='ArrowUp'?1:-1);if(j>=0&&j<UP_ORDER.length)setInst(sn.n.id,UP_ORDER[j])}return}
-  if(k==='ArrowLeft'||k==='ArrowRight'){
-    const d=k==='ArrowRight'?1:-1;
+  // Shift+↑↓ moves the note to the drum above / below
+  if(e.shiftKey&&(k==='ArrowUp'||k==='ArrowDown')){if(sn){e.preventDefault();const i=UP_ORDER.indexOf(sn.n.i),j=i+(k==='ArrowUp'?1:-1);if(j>=0&&j<UP_ORDER.length)setInst(sn.n.id,UP_ORDER[j])}return}
+  // ←→ on a note: the next / previous note of the same kind (cymbals, snare and toms, kick and pedal)
+  if((k==='ArrowLeft'||k==='ArrowRight')&&sn){e.preventDefault();const d=k==='ArrowRight'?1:-1,gp=NAV_GROUP[sn.n.i],list=orderedNotes().filter(x=>NAV_GROUP[x.n.i]===gp);
+    const i=list.findIndex(x=>x.n.id===sn.n.id),nx=list[i+d];if(i>=0&&nx)select({type:'note',m:nx.mi,id:nx.n.id},true);return}
+  // ↑↓ walk through every note and rest in order (what ←→ used to do)
+  if(k==='ArrowLeft'||k==='ArrowRight'||((k==='ArrowUp'||k==='ArrowDown')&&(sn||(sel&&sel.type==='rest')))){
+    const d=(k==='ArrowRight'||k==='ArrowDown')?1:-1;
     if(sn||(sel&&sel.type==='rest')){e.preventDefault();const list=orderedElements();
       const i=sn?list.findIndex(x=>x.k==='n'&&x.id===sn.n.id):list.findIndex(x=>x.k==='r'&&x.mi===sel.m&&Math.abs(x.t-sel.t)<1e-6&&x.v===sel.v);
       const nx=list[i+d];if(i>=0&&nx)selectElement(nx)}
