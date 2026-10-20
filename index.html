@@ -3952,7 +3952,10 @@ function pasteMeasures(json){
   commit(()=>{arr.forEach((src,k)=>{const mi=start+k;
     if(mi>=score.measures.length)score.measures.push(newMeasure(tiAt(score.measures.length-1)));
     const c=normMeasure(JSON.parse(JSON.stringify(src)),tiAt(mi));c.notes.forEach(n=>n.id=nid());
-    const keep=score.measures[mi];if(keep.ts)c.ts=keep.ts;else delete c.ts;if(keep.gapA)c.gapA=keep.gapA;else delete c.gapA;score.measures[mi]=c});
+    const keep=score.measures[mi];if(keep.ts)c.ts=keep.ts;else delete c.ts;if(keep.gapA)c.gapA=keep.gapA;else delete c.gapA;
+    // page / line breaks belong to where the measure sits on the page, not to its music: the target keeps its own
+    for(const k of ['pageBreak','lineBreak','lineN']){if(keep[k]!=null)c[k]=keep[k];else delete c[k]}
+    score.measures[mi]=c});
     sel={type:arr.length>1?'range':'measure',m:start,a:start,b:start+arr.length-1,anchor:start};if(arr.length===1)sel={type:'measure',m:start}});
   toast(arr.length>1?`마디 ${start+1}–${start+arr.length}에 붙여넣었어요`:`마디 ${start+1}에 붙여넣었어요`);
 }
