@@ -1670,7 +1670,17 @@ function elOwner(key){
   return ok?{kind:'measure',t,m:mi,meas:m}:null;
 }
 const EL_NAME={vib:'비브라토',fade:'fade out',txt:'텍스트',ftx:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
+// the "o" of an open hi-hat and its arrow (o→) are one mark: they move together
+function offPartner(key){const [t,id]=key.split(':');if(t!=='open'&&t!=='ar')return null;const f=findNote(id);if(!f)return null;
+  const ch=chordOf(f.m,f.n),pn=t==='open'?ch.find(x=>x.ar):ch.find(x=>x.i==='hho');return pn?(t==='open'?'ar:':'open:')+pn.id:null}
+function offBase(key){const o=elOwner(key);if(!o)return [0,0];const tg=o.kind==='note'?o.n:o.meas;return (tg.off&&tg.off[o.t])||[0,0]}
+// move a mark by d (and its partner the same way) in one undo step
+function moveOffset(key,d){const pk=offPartner(key),b=offBase(key),pb=pk&&offBase(pk);
+  if(!pk){setOffset(key,d?[b[0]+d[0],b[1]+d[1]]:null);return}
+  const w=OFF_BATCH;OFF_BATCH=true;commit(()=>{setOffset(key,d?[b[0]+d[0],b[1]+d[1]]:null);setOffset(pk,d?[pb[0]+d[0],pb[1]+d[1]]:null)});OFF_BATCH=w}
+let OFF_BATCH=false;
 function setOffset(key,off){
+  if(OFF_BATCH){const o=elOwner(key);if(!o)return;const tgt=o.kind==='note'?o.n:o.meas;tgt.off=tgt.off||{};if(off&&(Math.abs(off[0])>0.01||Math.abs(off[1])>0.01))tgt.off[o.t]=[r(off[0]),r(off[1])];else delete tgt.off[o.t];if(!Object.keys(tgt.off).length)delete tgt.off;return}
   if(key.startsWith('ftx:')){const tx=score.ftexts&&score.ftexts[+key.slice(4)];if(!tx||!off)return;
     commit(()=>{tx.x=Math.max(0,Math.min(1,tx.x+off[0]/PAGE_W));tx.y=Math.max(0.01,Math.min(1,tx.y+off[1]/PAGE_H))});return}
   commit(()=>{const o=elOwner(key);if(!o)return false;const tgt=o.kind==='note'?o.n:o.meas;
@@ -2494,10 +2504,12 @@ pagesEl.addEventListener('pointerdown',e=>{
     select({type:'el',key,m:o.m});
     if(NODRAG.has(o.t))return;
     const node=pagesEl.querySelector(`[data-el="${key}"]`),svg2=node&&node.ownerSVGElement;if(!node)return;
+    const pk=offPartner(key),pnode=pk&&pagesEl.querySelector(`[data-el="${pk}"]`),pbase=pk?offBase(pk):null;
     let moved=false;
-    const mv=ev=>{const p=svgPoint(svg2,ev),dx=p.x-start.x,dy=p.y-start.y;if(!moved&&Math.hypot(dx,dy)<0.25)return;moved=true;node.setAttribute('transform',`translate(${r(base[0]+dx)} ${r(base[1]+dy)})`)};
+    const mv=ev=>{const p=svgPoint(svg2,ev),dx=p.x-start.x,dy=p.y-start.y;if(!moved&&Math.hypot(dx,dy)<0.25)return;moved=true;node.setAttribute('transform',`translate(${r(base[0]+dx)} ${r(base[1]+dy)})`);
+      if(pnode)pnode.setAttribute('transform',`translate(${r(pbase[0]+dx)} ${r(pbase[1]+dy)})`)};
     const upf=ev=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',upf);window.removeEventListener('pointercancel',upf);
-      if(moved){const p=svgPoint(svg2,ev);setOffset(key,[base[0]+p.x-start.x,base[1]+p.y-start.y])}
+      if(moved){const p=svgPoint(svg2,ev);moveOffset(key,[p.x-start.x,p.y-start.y])}
       else if(o.t==='tempo'&&again)openTempo(o.m);
       else if(o.t==='ftx'&&again)openFtx(key);
       else if((o.t==='sec'||o.t==='txt')&&again)openHdr(key);};
@@ -2889,7 +2901,7 @@ document.addEventListener('keydown',e=>{
   if(sel&&sel.type==='el'){
     if(k==='Delete'||k==='Backspace'){e.preventDefault();deleteEl(sel.key);return}
     const dv={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[k];
-    if(dv&&!NODRAG.has(sel.key.split(':')[0])){e.preventDefault();const o=elOwner(sel.key);const tg=o.kind==='note'?o.n:o.meas;const b=(tg.off&&tg.off[o.t])||[0,0],st=e.shiftKey?1:0.25;setOffset(sel.key,[b[0]+dv[0]*st,b[1]+dv[1]*st]);return}
+    if(dv&&!NODRAG.has(sel.key.split(':')[0])){e.preventDefault();const o=elOwner(sel.key);const tg=o.kind==='note'?o.n:o.meas;const st=e.shiftKey?1:0.25;moveOffset(sel.key,[dv[0]*st,dv[1]*st]);return}
   }
   if(k==='Delete'||k==='Backspace'){
     // input mode: like backspace while typing, remove the note just before the cursor and step back onto its spot
@@ -3091,7 +3103,7 @@ $('#dock-prop').addEventListener('click',e=>{
     toggleNoteAt(mi,b,s,m.divs[b],i);return;
   }
   const a=e.target.closest('[data-act]');if(!a)return;
-  if(a.dataset.act==='resetoff'){setOffset(sel.key,null);return}
+  if(a.dataset.act==='resetoff'){moveOffset(sel.key,null);return}
   if(a.dataset.act==='dxreset'){if(sel.type==='note'){const f=findNote(sel.id);if(f)setDx('note',f.m,sel.id,0)}else if(sel.type==='rest')setDx('rest',sel.m,sel.t,0);return}
   if(a.dataset.act==='wfreset'){commit(()=>{for(const mi of selMeasures())delete score.measures[mi].wf});return}
   if(a.dataset.act==='delel'){deleteEl(sel.key);return}
