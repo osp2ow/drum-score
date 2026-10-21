@@ -631,6 +631,10 @@ const isTs=ts=>Array.isArray(ts)&&Number.isInteger(+ts[0])&&+ts[0]>=1&&+ts[0]<=1
 function validTs(ts){return isTs(ts)?[+ts[0],+ts[1]]:[4,4]}
 const sameTs=(a,b)=>a[0]===b[0]&&a[1]===b[1];
 function defDiv(ti){return ti.compound?3:ti.bf===1?2:ti.bf===-1?8:4}
+// a lyric word can be underlined (ul), bold (bd) or italic (it) to point at it (b is the word's beat, so not that)
+const LYR_FX=['ul','bd','it'],LYR_FX_NAME={ul:'밑줄',bd:'굵게',it:'기울임'};
+const lyrFxAttr=l=>{const c=(l.bd?'font-weight:700;':'')+(l.it?'font-style:italic;':'')+(l.ul?'text-decoration:underline;':'');return c?` style="${c}"`:''};
+const lyrFxOf=l=>{const o={};if(l)for(const k of LYR_FX)if(l[k])o[k]=1;return o};
 function newMeasure(ti){return {divs:Array(ti.beats).fill(defDiv(ti)),notes:[],lyrics:[],section:'',repeatStart:false,repeatEnd:false,simile:false}}
 function aliasInst(i){const k=String(i||'').toLowerCase().replace(/[\s_\-]/g,'');return INST[k]?k:ALIAS[k]||null}
 const validTempo=v=>Number.isFinite(+v)&&+v>=20&&+v<=320?Math.round(+v):null;
@@ -661,7 +665,7 @@ function normMeasure(m,ti){
       return o})
     .filter(n=>n.i&&Number.isInteger(n.b)&&n.b>=0&&n.b<ti.beats&&Number.isInteger(n.s)&&n.s>=0&&n.s<divs[n.b])
     .filter(n=>{const k=n.b+'|'+n.s+'|'+n.i;if(seen.has(k))return false;seen.add(k);return true});
-  const lyrics=(Array.isArray(m.lyrics)?m.lyrics:[]).map(l=>{const o={b:+l.b,s:+l.s,d:+l.d,t:String(l.t||'').trim().slice(0,24)};if(Number.isFinite(+l.dx)&&+l.dx)o.dx=Math.max(-12,Math.min(12,+l.dx));return o})
+  const lyrics=(Array.isArray(m.lyrics)?m.lyrics:[]).map(l=>{const o={b:+l.b,s:+l.s,d:+l.d,t:String(l.t||'').trim().slice(0,24)};if(Number.isFinite(+l.dx)&&+l.dx)o.dx=Math.max(-12,Math.min(12,+l.dx));for(const k of LYR_FX)if(l[k])o[k]=1;return o})
     .filter(l=>l.t&&Number.isInteger(l.b)&&l.b>=0&&l.b<ti.beats&&l.d>0&&l.s>=0&&l.s<l.d);
   const o={divs,notes,lyrics,section:str(m.section).slice(0,20),repeatStart:!!m.repeatStart,repeatEnd:!!m.repeatEnd,simile:!!m.simile};
   const mof=cleanOff(m.off);if(mof)o.off=mof;
@@ -1378,7 +1382,7 @@ function renderMeasureBody(mi,sys,exp){
     const st=txs('lyr'),hw2=textW(l.t,st.sz,st.w,fontCss())/2,ty=top+sys.lyrY-st.sz*0.78;
     const hit=[mi-1,mi,mi+1].some(k=>(L.lows&&L.lows[k]||[]).some(q=>q.x1>x-hw2&&q.x0<x+hw2&&q.y>ty));
     if(hit&&exp)return;
-    o+=`<text class="tx t-lyr${hit?' lyr-hid':''}" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle">${esc(l.t)}</text>`;
+    o+=`<text class="tx t-lyr${hit?' lyr-hid':''}" data-lyr="${li}" data-m="${mi}" x="${r(x)}" y="${r(top+sys.lyrY)}" text-anchor="middle"${lyrFxAttr(l)}>${esc(l.t)}</text>`;
   });
   // sticking (R / L): on the lyric line, or on its own line below when a word sits under the same note
   {const st=txs('stk'),seen=new Set(),SQ=0.8; // each letter a little narrower, so the space between letters opens up
@@ -1800,7 +1804,7 @@ function spanData(g0,g1){
     for(let b=0;b<ti.beats;b++){const bg=ms+b*bt;if(bg+bt<=g0||bg>=g1)continue;beats.push({o:bg-g0,len:bt,div:m.divs[b],full:bg>=g0&&bg+bt<=g1,tq:(m.tq||[]).filter(k=>k.startsWith(b+':')).map(k=>+k.split(':')[1])})}
     for(const x of (m.rb||[])){const g=gAt(mi,x);if(g>g0&&g<g1)rb.push(g-g0)}
     if(m.rdx)for(const [k,v] of Object.entries(m.rdx)){const g=gAt(mi,+k);if(g>=g0&&g<g1)rdx.push({o:g-g0,v})}
-    for(const l of m.lyrics){const g=gAt(mi,l.b+l.s/l.d);if(g>=g0&&g<g1)lyrics.push({o:g-g0,t:l.t,...(l.dx?{dx:l.dx}:{})})}
+    for(const l of m.lyrics){const g=gAt(mi,l.b+l.s/l.d);if(g>=g0&&g<g1)lyrics.push({o:g-g0,t:l.t,...(l.dx?{dx:l.dx}:{}),...lyrFxOf(l)})}
   });
   return {span:true,v:2,len:g1-g0,notes,beats,rb,rdx,lyrics};
 }
@@ -1845,7 +1849,7 @@ function pasteSpan(clip){
     }
     for(const o of (clip.rb||[])){const q=tickPos(G0+o),m=score.measures[q.mi];if(!m||q.x<=1e-9)continue;const x=Math.round(q.x*1e6)/1e6;m.rb=[...new Set([...(m.rb||[]),x])].sort((a,c)=>a-c)}
     for(const r0 of (clip.rdx||[])){const q=tickPos(G0+r0.o),m=score.measures[q.mi];if(!m)continue;m.rdx=m.rdx||{};m.rdx[tKey(q.x)]=r0.v}
-    for(const l of (clip.lyrics||[])){const q=tickPos(G0+l.o),m=score.measures[q.mi];if(!m)continue;m.lyrics.push({b:q.b,s:q.num,d:q.den,t:l.t,...(l.dx?{dx:l.dx}:{})})}
+    for(const l of (clip.lyrics||[])){const q=tickPos(G0+l.o),m=score.measures[q.mi];if(!m)continue;m.lyrics.push({b:q.b,s:q.num,d:q.den,t:l.t,...(l.dx?{dx:l.dx}:{}),...lyrFxOf(l)})}
     sel={type:'span',m:locate(G0).mi,g0:G0,g1:G1,A:G0,Alen:len,F:G0};
   });
   toast(`${lenLabel(len)} 구간을 붙여넣었어요`);
@@ -2274,6 +2278,7 @@ const PALETTE=[
     {id:'drag',label:'드래그',icon:svgI(st5()+T(1.7,5.5,G.headBlack,2.6)+T(2.95,5.5,G.headBlack,2.6)+`<line class="ln" x1="2.5" y1="5.4" x2="2.5" y2="3.2" stroke-width=".09"/><line class="ln" x1="3.75" y1="5.4" x2="3.75" y2="3.2" stroke-width=".09"/><rect class="fl" x="2.45" y="3.2" width="1.35" height=".32"/><rect class="fl" x="2.45" y="3.75" width="1.35" height=".32"/>`+T(4.9,5.5,G.headBlack)+`<line class="ln" x1="6.14" y1="5.3" x2="6.14" y2="1.8" stroke-width=".12"/>`)}]},
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
   {cat:'템포',items:[{id:'shuffle',label:'셔플',icon:svgI(shuffleMark(0.2,6.2).replace(/class="tx t-tempo"/,'class="tx" style="font-size:2.2px"'),'0 0 9.4 8')},...[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))]},
+  {cat:'가사 꾸미기',items:[{id:'lyr:ul',label:'가사 밑줄',icon:svgI(`<text class="tx" x="5" y="5.2" text-anchor="middle" style="font-size:4px">가</text><line class="ln" x1="2.6" y1="6.3" x2="7.4" y2="6.3" stroke-width=".3"/>`)},{id:'lyr:bd',label:'가사 굵게',icon:svgI(`<text class="tx" x="5" y="5.6" text-anchor="middle" style="font-size:4.2px;font-weight:800">가</text>`)},{id:'lyr:it',label:'가사 기울임',icon:svgI(`<text class="tx" x="5" y="5.6" text-anchor="middle" style="font-size:4.2px;font-style:italic">가</text>`)}]},
   {cat:'텍스트',items:[{id:'divider',label:'구분선',icon:svgI(`<line class="ln" x1="1" y1="4" x2="9" y2="4" stroke-width=".35" stroke-dasharray="1 .6"/>`)},{id:'text',label:'텍스트 상자 (T)',icon:svgI(`<rect class="ln" x="1.2" y="1.8" width="7.6" height="4.6" rx=".5" fill="none" stroke-width=".22" stroke-dasharray=".6 .4"/><text class="tx" x="5" y="5.1" text-anchor="middle" style="font-size:2.6px;font-weight:600">Abc</text>`)}]},
   {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)},{id:'vib',label:'비브라토',icon:svgI(wavy(1,9,4).replace('stroke-width="0.17"','stroke-width="0.3"'))},{id:'fade',label:'fade out',icon:svgI(`<text class="tx" x=".6" y="4.6" style="font-size:2.4px;font-style:italic">fade</text><circle class="fl" cx="6.4" cy="4" r=".28"/><circle class="fl" cx="7.6" cy="4" r=".28"/><circle class="fl" cx="8.8" cy="4" r=".28"/>`)}]},
   {cat:'아티큘레이션',items:[
@@ -2393,6 +2398,7 @@ function lineGap(below,d){
 function applyPalette(id){
   if(id==='text'){addText();return}
   if(id==='divider'){addDivider();return}
+  if(id.startsWith('lyr:')){lyricsFx(id.slice(4));return}
   if(id.startsWith('gap:')){const k=id.slice(4);lineGap(k[0]==='B',k==='0'?0:(k[1]==='+'?1.5:-1.5));return}
   if(id==='shuffle'&&sel){const a=Math.min(...selMeasures());commit(()=>{const m=score.measures[a];if(m.shuffle)delete m.shuffle;else m.shuffle=true});toast(score.measures[a].shuffle?'셔플 표기를 넣었어요 · 재생도 셔플로 들려요':'셔플 표기를 뺐어요');return}
   if(id==='addm'){openAddBox();return}
@@ -2606,7 +2612,7 @@ function lyricPositions(){
 const samePos=(a,b)=>a.mi===b.mi&&Math.abs(a.t-b.t)<1e-6;
 function lyricAt(p){return score.measures[p.mi].lyrics.find(l=>Math.abs(l.b+l.s/l.d-p.t)<1e-6)}
 function openLyric(p){
-  lyr.open=true;lyr.pos=p;const ex=lyricAt(p);
+  lyr.open=true;lyr.pos=p;const ex=lyricAt(p);lyr.fx=lyrFxOf(ex);lyrFxShow();
   lyrEl.hidden=false;lyrEl.value=ex?ex.t:'';
   positionLyric();lyrEl.focus();lyrEl.select();
   if(!(sel&&sel.type==='measure'&&sel.m===p.mi)){sel={type:'measure',m:p.mi};render()}
@@ -2628,15 +2634,32 @@ const unhideEditing=()=>pagesEl.querySelectorAll('.editing').forEach(e=>e.classL
 function positionLyric(){
   const p=lyr.pos;if(!p)return;const ml=L.mL[p.mi];if(!ml)return;
   const m=score.measures[p.mi],li=m.lyrics.findIndex(l=>Math.abs(l.b+l.s/l.d-p.t)<1e-6),ex=li>=0?m.lyrics[li]:null;
-  placeInline(lyrEl,{page:ml.page,x:(li>=0&&L.lyrX&&L.lyrX[p.mi]&&L.lyrX[p.mi][li]!=null)?L.lyrX[p.mi][li]:mtx(ml,p.b,p.t-p.b)+HEAD_W/2+(ex&&ex.dx||0),y:ml.top+ml.sys.lyrY,anchor:'middle',tk:'lyr',hide:li>=0?`[data-lyr="${li}"][data-m="${p.mi}"]`:null});
+  placeInline(lyrEl,{page:ml.page,x:(li>=0&&L.lyrX&&L.lyrX[p.mi]&&L.lyrX[p.mi][li]!=null)?L.lyrX[p.mi][li]:mtx(ml,p.b,p.t-p.b)+HEAD_W/2+(ex&&ex.dx||0),y:ml.top+ml.sys.lyrY,anchor:'middle',tk:'lyr',hide:li>=0?`[data-lyr="${li}"][data-m="${p.mi}"]`:null});lyrFxShow();
 }
 function commitLyric(){
   const p=lyr.pos;if(!p)return;
   const v=lyrEl.value.replace(/\u00A0/g,' ').trim().slice(0,24),ex=lyricAt(p);
   if((ex?ex.t:'')===v)return;
-  commit(()=>{const m=score.measures[p.mi];m.lyrics=m.lyrics.filter(l=>Math.abs(l.b+l.s/l.d-p.t)>=1e-6);if(v)m.lyrics.push(ex&&ex.dx?{b:p.b,s:p.s,d:p.d,t:v,dx:ex.dx}:{b:p.b,s:p.s,d:p.d,t:v})});
+  commit(()=>{const m=score.measures[p.mi];m.lyrics=m.lyrics.filter(l=>Math.abs(l.b+l.s/l.d-p.t)>=1e-6);if(v)m.lyrics.push({b:p.b,s:p.s,d:p.d,t:v,...(ex&&ex.dx?{dx:ex.dx}:{}),...lyrFxOf(ex||lyr.fx)})});
 }
-function closeLyric(save){if(!lyr.open)return;if(save)commitLyric();lyr.open=false;lyr.pos=null;lyrEl.hidden=true;lyrEl.blur();unhideEditing()}
+function lyrFxShow(){const f=lyr.fx||{};lyrEl.style.textDecoration=f.ul?'underline':'';lyrEl.style.fontStyle=f.it?'italic':'';lyrEl.style.fontWeight=f.bd?'700':''}
+// Ctrl+U / Ctrl+B / Ctrl+I while typing a word: underline / bold / italic for that word
+function lyrFxToggle(k){lyr.fx=lyr.fx||{};if(lyr.fx[k])delete lyr.fx[k];else lyr.fx[k]=1;lyrFxShow();
+  const p=lyr.pos,ex=p&&lyricAt(p);if(ex)commit(()=>{if(lyr.fx[k])ex[k]=1;else delete ex[k]})}
+// palette: the same for every word in the selected measures / beats (all on, or all off when every one already has it)
+function lyricsFx(k){
+  if(lyr.open){lyrFxToggle(k);return}
+  // the word that was being typed a moment ago (clicking the palette ends the typing first)
+  if(lastLyr&&Date.now()-lastLyr.at<2500&&lastLyr.pos&&score.measures[lastLyr.pos.mi]){const l=lyricAt(lastLyr.pos);if(l){commit(()=>{if(l[k])delete l[k];else l[k]=1});lastLyr.at=Date.now();toast(`“${l.t}” ${LYR_FX_NAME[k]} ${l[k]?'켰어요':'껐어요'}`);return}}
+  if(!sel){toast('꾸밀 가사가 있는 마디를 먼저 누르세요');return}
+  let list=[];
+  if(sel.type==='span'){score.measures.forEach((m,mi)=>m.lyrics.forEach(l=>{const g=gAt(mi,l.b+l.s/l.d);if(g>=sel.g0&&g<sel.g1)list.push(l)}))}
+  else{const ms=sel.type==='range'?Array.from({length:sel.b-sel.a+1},(_,i)=>sel.a+i):[sel.m];for(const mi of ms)if(score.measures[mi])list.push(...score.measures[mi].lyrics)}
+  if(!list.length){toast('선택한 곳에 가사가 없어요');return}
+  const on=!list.every(l=>l[k]);commit(()=>{for(const l of list){if(on)l[k]=1;else delete l[k]}});
+  toast(`가사 ${list.length}개 ${LYR_FX_NAME[k]} ${on?'켰어요':'껐어요'}`)}
+let lastLyr=null;
+function closeLyric(save){if(!lyr.open)return;lastLyr={pos:lyr.pos,at:Date.now()};if(save)commitLyric();lyr.open=false;lyr.pos=null;lyrEl.hidden=true;lyrEl.blur();unhideEditing()}
 function moveLyric(dir){
   commitLyric();
   const ps=lyricPositions(),i=ps.findIndex(p=>samePos(p,lyr.pos)),nx=ps[i+dir];
@@ -2657,6 +2680,7 @@ let lyrNb=false;
 function lyricSpace(){const a=lyrEl.selectionStart??lyrEl.value.length,b=lyrEl.selectionEnd??a;lyrEl.setRangeText('\u00A0',a,b,'end');positionLyric()}
 lyrEl.addEventListener('compositionend',()=>{if(lyrNb){lyrNb=false;setTimeout(lyricSpace,0)}});
 lyrEl.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&['KeyU','KeyB','KeyI'].includes(e.code)){e.preventDefault();e.stopPropagation();lyrFxToggle({KeyU:'ul',KeyB:'bd',KeyI:'it'}[e.code]);return}
   if((e.code==='Space'||e.key===' '||e.key==='\u00A0')&&(e.ctrlKey||e.metaKey||e.altKey)){e.preventDefault();e.stopPropagation();if(e.isComposing||e.keyCode===229)lyrNb=true;else lyricSpace();return}
   if(e.isComposing||e.keyCode===229)return;
   if(e.key===' '||(e.key==='Tab'&&!e.shiftKey)){e.preventDefault();moveLyric(1)}
