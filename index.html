@@ -471,6 +471,16 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
           <div class="playhead" id="playhead" hidden></div>
           <div id="recMarks"></div>
           <button class="eldel" id="elDel" hidden title="선택한 기호 지우기 (Delete)">지우기</button>
+          <div class="ftxbar" id="flnBar" hidden role="toolbar" aria-label="구분선 꾸미기">
+            <button type="button" data-fl="st" data-v="dash" title="점선"><svg viewBox="0 0 16 16"><path d="M1 8h3M6.5 8h3M12 8h3"/></svg></button><button type="button" data-fl="st" data-v="dot" title="동글 점선"><svg viewBox="0 0 16 16"><path d="M2 8h.01M5.3 8h.01M8.6 8h.01M11.9 8h.01M15 8h.01" stroke-width="2.4"/></svg></button><button type="button" data-fl="st" data-v="solid" title="실선"><svg viewBox="0 0 16 16"><path d="M1 8h14"/></svg></button><button type="button" data-fl="st" data-v="double" title="이중선"><svg viewBox="0 0 16 16"><path d="M1 6.3h14M1 9.7h14"/></svg></button>
+            <span class="sep"></span>
+            <button type="button" data-fl="thd" title="선 가늘게">&minus;</button><span id="flTh" style="min-width:34px;text-align:center;font-size:12px">보통</span><button type="button" data-fl="thu" title="선 굵게">+</button>
+            <label class="fxc" title="선 색"><input type="color" id="flColor" aria-label="선 색"><span>색</span></label>
+            <span class="sep"></span>
+            <input id="flTitle" placeholder="선 위 제목 (예: 실전)" maxlength="40" style="width:150px;height:26px;font-size:12.5px" aria-label="선 위 제목"><button type="button" data-fl="al" title="제목을 가운데로">가운데</button>
+            <span class="sep"></span>
+            <button type="button" data-fl="full" title="여백 끝에서 끝까지">폭 맞춤</button><button type="button" data-fl="del" class="fxdel" title="이 구분선 지우기 (Delete)">지우기</button>
+          </div>
           <textarea id="ftxEd" class="ftx-ed" hidden spellcheck="false" aria-label="텍스트 상자 내용"></textarea>
           <div class="ftxbar" id="ftxBar" hidden role="toolbar" aria-label="텍스트 상자 꾸미기">
             <select id="fxFont" title="글꼴" aria-label="글꼴"></select>
@@ -687,6 +697,9 @@ function normScore(s){
   if(!o.measures.length) for(let i=0;i<4;i++) o.measures.push(newMeasure(tsInfo(o.ts)));
   const tp=validTempo(s.tempo);if(tp&&!o.measures[0].tempo)o.measures[0].tempo=tp;
   // free text boxes placed anywhere on a page (position kept as a fraction of the page)
+  if(Array.isArray(s.flines)){const f=s.flines.filter(l=>l&&typeof l==='object').map(l=>{const e={p:Math.max(0,Math.round(+l.p||0)),x:Math.max(0,Math.min(1,+l.x||0)),y:Math.max(0,Math.min(1,+l.y||0)),w:Math.max(0.02,Math.min(1,+l.w||0.5))};
+      if(['dash','dot','solid','double'].includes(l.st))e.st=l.st;if([1,2,3].includes(+l.th))e.th=+l.th;if(typeof l.c==='string'&&/^#[0-9a-f]{6}$/i.test(l.c))e.c=l.c;if(typeof l.t==='string'&&l.t.trim())e.t=String(l.t).slice(0,40);if(l.al==='c')e.al='c';return e});
+    if(f.length)o.flines=f}
   if(Array.isArray(s.ftexts)){const col=c=>typeof c==='string'&&/^#[0-9a-f]{6}$/i.test(c)?c:null;
     const f=s.ftexts.filter(t=>t&&typeof t.t==='string'&&t.t.trim()).map(t=>{const e={t:String(t.t).slice(0,2000),p:Math.max(0,Math.round(+t.p||0)),x:Math.max(0,Math.min(1,+t.x||0)),y:Math.max(0,Math.min(1,+t.y||0))};
       if(+t.fs>=4&&+t.fs<=200)e.fs=Math.round(+t.fs*2)/2;if(+t.w>=0.02&&+t.w<=1)e.w=+t.w;if(typeof t.ff==='string'&&FT_FONTS.some(f=>f.k===t.ff))e.ff=t.ff;
@@ -1098,7 +1111,7 @@ function renderPage(pi,exp){
     :`<svg class="page" data-p="${pi}" viewBox="0 0 ${r(PAGE_W)} ${r(PAGE_H)}" role="img" aria-label="악보 ${pi+1}쪽"><rect class="paper-bg" width="${PAGE_W}" height="${PAGE_H}"/>`;
   if(pi===0)o+=renderHeader(exp);
   for(const sys of pg.systems)o+=renderSystem(sys,exp);
-  o+=renderFreeTexts(pi,exp);
+  o+=renderFreeLines(pi,exp);o+=renderFreeTexts(pi,exp);
   if(pi>0)o+=`<text class="tx t-num" x="${r(PAGE_W-MARGIN)}" y="${r(MARGIN-2.5)}" text-anchor="end">${pi+1}</text>`;
   if(!exp)o+=`<g class="ghost" id="ghost${pi}"></g>`;
   return o+'</svg>';
@@ -1122,6 +1135,20 @@ function ftxLayout(tx){
   const anchor=tx.al==='c'?'middle':tx.al==='r'?'end':'start',lx=anchor==='middle'?X+W/2:anchor==='end'?X+W-pad:X+pad;
   return {X,Y,W,H,fs,fam,wt,lh,pad,lines,lx,anchor,base:i=>Y+pad+i*lh+lh/2+fs*0.35};
 }
+// divider lines anywhere on a page: dashed, dotted, solid or double, with an optional title on the line ("기본기", "실전")
+const FL_TH=[0,0.12,0.2,0.32];
+function flineLayout(l){const x=l.x*PAGE_W,y=l.y*PAGE_H,w=l.w*PAGE_W,th=FL_TH[l.th||1],c=l.c||'#555555';
+  const st=txs('sec'),fs=st.sz*1.05,tw=l.t?textW(l.t,fs,700,fontCss()):0,pad=l.t?0.9:0,tx=l.t?(l.al==='c'?x+(w-tw)/2:x+1.2):0;return {x,y,w,th,c,fs,tw,pad,tx}}
+function renderFreeLines(pi,exp){let o='';
+  (score.flines||[]).forEach((l,k)=>{if(Math.min(l.p,L.pages.length-1)!==pi)return;const key='fln:'+k,F=flineLayout(l),on=!exp&&sel&&sel.type==='el'&&sel.key===key;
+    const seg=(a,b)=>{if(b-a<0.05)return '';const st=l.st||'dash',sw=st==='dot'?F.th*1.5:F.th,da=st==='dash'?` stroke-dasharray="${r(0.9+F.th*3)} ${r(0.55+F.th*2)}"`:st==='dot'?` stroke-dasharray="0.01 ${r(0.55+F.th*3)}" stroke-linecap="round"`:'';
+      if(st==='double')return `<line x1="${r(a)}" y1="${r(F.y-0.22-F.th/2)}" x2="${r(b)}" y2="${r(F.y-0.22-F.th/2)}" stroke="${F.c}" stroke-width="${r(F.th)}"/><line x1="${r(a)}" y1="${r(F.y+0.22+F.th/2)}" x2="${r(b)}" y2="${r(F.y+0.22+F.th/2)}" stroke="${F.c}" stroke-width="${r(F.th)}"/>`;
+      return `<line x1="${r(a)}" y1="${r(F.y)}" x2="${r(b)}" y2="${r(F.y)}" stroke="${F.c}" stroke-width="${r(sw)}"${da}/>`};
+    let inner=l.t?seg(F.x,F.tx-F.pad)+seg(F.tx+F.tw+F.pad,F.x+F.w)+`<text x="${r(F.tx)}" y="${r(F.y+F.fs*0.34)}" font-size="${r(F.fs)}" font-weight="700" fill="${F.c}" style="font-family:var(--score)">${esc(l.t)}</text>`:seg(F.x,F.x+F.w);
+    o+=exp?inner:elG(key,null,inner,[F.x,F.y-Math.max(0.9,F.fs*0.7),F.w,Math.max(1.8,F.fs*1.4)]);
+    if(on){const hs=0.75;o+=`<rect class="ftx-h" data-flh="l" data-k="${k}" x="${r(F.x-hs/2)}" y="${r(F.y-hs)}" width="${r(hs)}" height="${r(hs*2)}"><title>끌어서 길이 조절</title></rect><rect class="ftx-h" data-flh="r" data-k="${k}" x="${r(F.x+F.w-hs/2)}" y="${r(F.y-hs)}" width="${r(hs)}" height="${r(hs*2)}"><title>끌어서 길이 조절</title></rect>`}
+    if(!exp){L.lnPos=L.lnPos||{};L.lnPos[key]={page:pi,F}}});
+  return o}
 function renderFreeTexts(pi,exp){if(exp)return '';let o='';L.txtPos=L.txtPos||{};
   (score.ftexts||[]).forEach((tx,k)=>{if(Math.min(tx.p,L.pages.length-1)!==pi)return;const key='ftx:'+k,F=ftxLayout(tx),on=sel&&sel.type==='el'&&sel.key===key;
     L.txtPos[key]={page:pi,x:F.X,y:F.Y,F};
@@ -1582,7 +1609,7 @@ function render(scrollSel){
   if(tempoMi!=null)positionTempo();
   if(hdrKey)positionHdr();
   if(ftxKey)placeFtx();
-  positionElDel();positionAddBox();positionFtxBar();
+  positionElDel();positionAddBox();positionFtxBar();positionFlnBar();
 }
 // Shift + "+" : add any number of empty measures right after the selected one(s)
 let addAfter=null;
@@ -1610,7 +1637,7 @@ $('#addBox').addEventListener('pointerdown',e=>e.stopPropagation());
 $('#addN').addEventListener('blur',()=>setTimeout(()=>{const ae=document.activeElement;if(addAfter!=null&&ae!==$('#addN')&&ae!==$('#addGo'))closeAddBox()},150));
 function positionElDel(){
   const b=$('#elDel');const el=sel&&sel.type==='el'&&pagesEl.querySelector(`[data-el="${sel.key}"]`);
-  if(!el||inputMode||sel.key.startsWith('ftx:')){b.hidden=true;return}
+  if(!el||inputMode||sel.key.startsWith('ftx:')||sel.key.startsWith('fln:')){b.hidden=true;return}
   const r1=el.getBoundingClientRect(),rc=canvasEl.getBoundingClientRect();
   b.hidden=false;b.style.left=(r1.right-rc.left+canvasEl.scrollLeft+4)+'px';b.style.top=(r1.top-rc.top+canvasEl.scrollTop-28)+'px';
 }
@@ -1662,6 +1689,7 @@ function inputCursor(force){
 }
 function elOwner(key){
   const [t,id]=key.split(':');
+  if(t==='fln'){const k=+id,l=score.flines&&score.flines[k];if(!l)return null;const pg=L&&L.pages[Math.min(l.p,L.pages.length-1)],m0=pg&&pg.systems[0]?pg.systems[0].ms[0]:0;return {kind:'page',t,k,meas:l,m:m0}}
   if(t==='ftx'){const k=+id,tx=score.ftexts&&score.ftexts[k];if(!tx)return null;const pg=L&&L.pages[Math.min(tx.p,L.pages.length-1)],m0=pg&&pg.systems[0]?pg.systems[0].ms[0]:0;return {kind:'page',t,k,meas:tx,m:m0}}
   if(t==='txt'){const [mi,k]=id.split('_').map(Number),m=score.measures[mi],tx=m&&m.texts&&m.texts[k];return tx?{kind:'measure',t,m:mi,k,meas:tx,mm:m}:null}
   if(['acc','open','ar','tr','g','stk','cl','oc','rd'].includes(t)){const f=findNote(id);return f?{kind:'note',t,m:f.m,n:f.n}:null}
@@ -1669,7 +1697,7 @@ function elOwner(key){
   const ok={shuf:m.shuffle,volta:m.volta,cresc:m.cresc,vib:m.vib,fade:m.fade,sec:m.section,segno:m.segno,coda:m.coda,tempo:m.tempo,ds:m.ds,ts:mi>0&&m.ts,rs:m.repeatStart,re:m.repeatEnd,dbl:m.barEnd==='double',pgbrk:m.pageBreak,lnbrk:m.lineBreak}[t];
   return ok?{kind:'measure',t,m:mi,meas:m}:null;
 }
-const EL_NAME={vib:'비브라토',fade:'fade out',txt:'텍스트',ftx:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
+const EL_NAME={fln:'구분선',vib:'비브라토',fade:'fade out',txt:'텍스트',ftx:'텍스트',rd:'Ride →',oc:'오픈-클로즈 표시',shuf:'셔플 표기',volta:'1번·2번 괄호',cl:'클로즈 하이햇 표시 (+)',stk:'손 순서',acc:'악센트',open:'오픈 하이햇 표시',ar:'화살표',tr:'더블 스트로크',g:'플램·드래그',cresc:'크레센도',sec:'파트 표기',segno:'세뇨',coda:'코다',tempo:'템포',ds:'달 세뇨',ts:'박자표',rs:'도돌이표 시작',re:'도돌이표 끝',dbl:'2줄 마디선',pgbrk:'페이지 나누기',lnbrk:'줄 나누기'};
 // the "o" of an open hi-hat and its arrow (o→) are one mark: they move together
 function offPartner(key){const [t,id]=key.split(':');if(t!=='open'&&t!=='ar')return null;const f=findNote(id);if(!f)return null;
   const ch=chordOf(f.m,f.n),pn=t==='open'?ch.find(x=>x.ar):ch.find(x=>x.i==='hho');return pn?(t==='open'?'ar:':'open:')+pn.id:null}
@@ -1681,6 +1709,8 @@ function moveOffset(key,d){const pk=offPartner(key),b=offBase(key),pb=pk&&offBas
 let OFF_BATCH=false;
 function setOffset(key,off){
   if(OFF_BATCH){const o=elOwner(key);if(!o)return;const tgt=o.kind==='note'?o.n:o.meas;tgt.off=tgt.off||{};if(off&&(Math.abs(off[0])>0.01||Math.abs(off[1])>0.01))tgt.off[o.t]=[r(off[0]),r(off[1])];else delete tgt.off[o.t];if(!Object.keys(tgt.off).length)delete tgt.off;return}
+  if(key.startsWith('fln:')){const l=score.flines&&score.flines[+key.slice(4)];if(!l||!off)return;
+    commit(()=>{l.x=Math.max(0,Math.min(1-0.02,l.x+off[0]/PAGE_W));l.y=Math.max(0.005,Math.min(0.995,l.y+off[1]/PAGE_H))});return}
   if(key.startsWith('ftx:')){const tx=score.ftexts&&score.ftexts[+key.slice(4)];if(!tx||!off)return;
     commit(()=>{tx.x=Math.max(0,Math.min(1,tx.x+off[0]/PAGE_W));tx.y=Math.max(0.01,Math.min(1,tx.y+off[1]/PAGE_H))});return}
   commit(()=>{const o=elOwner(key);if(!o)return false;const tgt=o.kind==='note'?o.n:o.meas;
@@ -1688,6 +1718,7 @@ function setOffset(key,off){
     if(!Object.keys(tgt.off).length)delete tgt.off});
 }
 function deleteEl(key){
+  if(key.startsWith('fln:')){const k=+key.slice(4);if(!score.flines||!score.flines[k])return;commit(()=>{score.flines.splice(k,1);if(!score.flines.length)delete score.flines;sel=null});return}
   if(key.startsWith('ftx:')){if(hdrKey===key)closeHdr(false);const k=+key.slice(4);if(!score.ftexts||!score.ftexts[k])return;commit(()=>{score.ftexts.splice(k,1);if(!score.ftexts.length)delete score.ftexts;sel=null});return}
   if(key.startsWith('txt:')){if(hdrKey===key)closeHdr(false);const o=elOwner(key);if(!o)return;commit(()=>{o.mm.texts.splice(o.k,1);if(!o.mm.texts.length)delete o.mm.texts;sel={type:'measure',m:o.m}});return}
   // close an in-place editor first so it can't write the old value back afterwards
@@ -2243,7 +2274,7 @@ const PALETTE=[
     {id:'drag',label:'드래그',icon:svgI(st5()+T(1.7,5.5,G.headBlack,2.6)+T(2.95,5.5,G.headBlack,2.6)+`<line class="ln" x1="2.5" y1="5.4" x2="2.5" y2="3.2" stroke-width=".09"/><line class="ln" x1="3.75" y1="5.4" x2="3.75" y2="3.2" stroke-width=".09"/><rect class="fl" x="2.45" y="3.2" width="1.35" height=".32"/><rect class="fl" x="2.45" y="3.75" width="1.35" height=".32"/>`+T(4.9,5.5,G.headBlack)+`<line class="ln" x1="6.14" y1="5.3" x2="6.14" y2="1.8" stroke-width=".12"/>`)}]},
   {cat:'박자표',items:TS_LIST.map(t=>({id:'ts:'+t.join('/'),label:t.join('/'),icon:tsIcon(t)}))},
   {cat:'템포',items:[{id:'shuffle',label:'셔플',icon:svgI(shuffleMark(0.2,6.2).replace(/class="tx t-tempo"/,'class="tx" style="font-size:2.2px"'),'0 0 9.4 8')},...[60].map(v=>({id:'tempo:'+v,label:'♩ = '+v,icon:svgI(T(0.6,5.4,G.metQ,3.2)+`<text class="tx" x="2.3" y="5" style="font-size:2.4px;font-weight:600">= ${v}</text>`)}))]},
-  {cat:'텍스트',items:[{id:'text',label:'텍스트 상자 (T)',icon:svgI(`<rect class="ln" x="1.2" y="1.8" width="7.6" height="4.6" rx=".5" fill="none" stroke-width=".22" stroke-dasharray=".6 .4"/><text class="tx" x="5" y="5.1" text-anchor="middle" style="font-size:2.6px;font-weight:600">Abc</text>`)}]},
+  {cat:'텍스트',items:[{id:'divider',label:'구분선',icon:svgI(`<line class="ln" x1="1" y1="4" x2="9" y2="4" stroke-width=".35" stroke-dasharray="1 .6"/>`)},{id:'text',label:'텍스트 상자 (T)',icon:svgI(`<rect class="ln" x="1.2" y="1.8" width="7.6" height="4.6" rx=".5" fill="none" stroke-width=".22" stroke-dasharray=".6 .4"/><text class="tx" x="5" y="5.1" text-anchor="middle" style="font-size:2.6px;font-weight:600">Abc</text>`)}]},
   {cat:'셈여림',items:[{id:'cresc',label:'크레센도',icon:svgI(`<path class="ln" d="M9 2.6 1 4 9 5.4" stroke-width=".18"/>`)},{id:'vib',label:'비브라토',icon:svgI(wavy(1,9,4).replace('stroke-width="0.17"','stroke-width="0.3"'))},{id:'fade',label:'fade out',icon:svgI(`<text class="tx" x=".6" y="4.6" style="font-size:2.4px;font-style:italic">fade</text><circle class="fl" cx="6.4" cy="4" r=".28"/><circle class="fl" cx="7.6" cy="4" r=".28"/><circle class="fl" cx="8.8" cy="4" r=".28"/>`)}]},
   {cat:'아티큘레이션',items:[
     {id:'accent',label:'악센트',icon:svgI(T(3.6,4.9,G.accA,5))},
@@ -2361,6 +2392,7 @@ function lineGap(below,d){
 }
 function applyPalette(id){
   if(id==='text'){addText();return}
+  if(id==='divider'){addDivider();return}
   if(id.startsWith('gap:')){const k=id.slice(4);lineGap(k[0]==='B',k==='0'?0:(k[1]==='+'?1.5:-1.5));return}
   if(id==='shuffle'&&sel){const a=Math.min(...selMeasures());commit(()=>{const m=score.measures[a];if(m.shuffle)delete m.shuffle;else m.shuffle=true});toast(score.measures[a].shuffle?'셔플 표기를 넣었어요 · 재생도 셔플로 들려요':'셔플 표기를 뺐어요');return}
   if(id==='addm'){openAddBox();return}
@@ -2496,6 +2528,8 @@ pagesEl.addEventListener('pointerdown',e=>{
   if(hh){e.preventDefault();const kd=hh.dataset.hk||'cresc';if(hh.dataset.side==='l')crescStartDrag(e,svg,+hh.dataset.hh,kd);else crescDrag(e,svg,+hh.dataset.hh,kd);return}
   const fh=!inputMode&&e.target.closest('[data-fh]');
   if(fh){e.preventDefault();ftxResize(e,fh);return}
+  const flh=!inputMode&&e.target.closest('[data-flh]');
+  if(flh){e.preventDefault();flineResize(e,flh);return}
   // a mark (Ride →, accents, text…) can sit under a note glyph drawn later; when no notehead is hit, its hit area still counts
   let elx=!inputMode&&e.target.closest('[data-el]');
   if(!inputMode&&!elx&&!e.shiftKey){try{const hit=document.elementsFromPoint(e.clientX,e.clientY).find(n=>n.classList&&n.classList.contains('ehit'));
@@ -2656,6 +2690,20 @@ tempoEl.addEventListener('blur',()=>setTimeout(()=>{if(tempoMi!=null&&document.a
 const hdrEl=$('#hdrInput');let hdrKey=null;
 const HDR_LABEL={title:'곡 제목',subtitle:'부제목',arranger:'작사 · made by',composer:'가수'};
 let txtNew=null;
+function flineResize(e,h){const k=+h.dataset.k,l=score.flines&&score.flines[k],pos=L.lnPos&&L.lnPos['fln:'+k];if(!l||!pos)return;
+  const pg=pos.page,svgOf=()=>pagesEl.querySelector(`svg.page[data-p="${pg}"]`),side=h.dataset.flh,o0={x:l.x,w:l.w},R=l.x+l.w;let moved=false;
+  const apply=p=>{const X=Math.max(0,Math.min(1,p.x/PAGE_W));if(side==='r'){l.w=Math.max(0.02,X-l.x)}else{const nx=Math.min(X,R-0.02);l.x=nx;l.w=R-nx}};
+  const mv=ev=>{const sv=svgOf();if(!sv)return;moved=true;apply(svgPoint(sv,ev));render()};
+  const up=ev=>{window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);
+    if(!moved)return;const fin={x:l.x,w:l.w};l.x=o0.x;l.w=o0.w;commit(()=>{l.x=Math.round(fin.x*10000)/10000;l.w=Math.round(fin.w*10000)/10000})};
+  window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up);window.addEventListener('pointercancel',up)}
+// a new divider across the page on screen, at the height you're looking at
+function addDivider(){
+  const svgs=[...pagesEl.querySelectorAll('svg.page')],cr=canvasEl.getBoundingClientRect(),cy=cr.top+cr.height/2,cx=cr.left+cr.width/2;
+  let best=null,bd=1e9;svgs.forEach(sv=>{const b=sv.getBoundingClientRect(),d=Math.max(0,b.top-cy,cy-b.bottom)*2+Math.max(0,b.left-cx,cx-b.right);if(d<bd){bd=d;best=sv}});
+  if(!best)return;const b=best.getBoundingClientRect(),pt=svgPoint(best,{clientX:cx,clientY:Math.min(Math.max(cy,b.top),b.bottom)}),pi=+best.dataset.p;let k=0;
+  commit(()=>{score.flines=score.flines||[];score.flines.push({p:pi,x:MARGIN/PAGE_W,y:Math.max(0.03,Math.min(0.97,pt.y/PAGE_H)),w:CONTENT_W/PAGE_W,st:'dash'});k=score.flines.length-1;sel={type:'el',key:'fln:'+k,m:0}});
+  toast('구분선을 넣었어요 · 끌어서 옮기고, 양 끝을 끌어 길이를 바꿔요')}
 let ftxNew=null;
 function addText(){
   // a new box in the middle of the page on screen; drag it anywhere afterwards
@@ -2769,6 +2817,35 @@ $('#fxSize').addEventListener('change',e=>{const v=parseFloat(e.target.value);if
 $('#fxSize').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();e.target.blur()}});
 $('#fxColor').addEventListener('input',e=>{const v=e.target.value;fxSet(t=>{if(v.toLowerCase()==='#111111')delete t.c;else t.c=v})});
 $('#fxBg').addEventListener('input',e=>{const v=e.target.value;fxSet(t=>{t.bg=v})});
+// the divider's toolbar: line style, thickness, colour, a title on the line
+const flnBar=$('#flnBar');
+const flSelKey=()=>sel&&sel.type==='el'&&sel.key&&sel.key.startsWith('fln:')?sel.key:null;
+const flOf=key=>key&&score.flines?score.flines[+key.slice(4)]||null:null;
+function positionFlnBar(){const key=flSelKey(),l=flOf(key),pos=key&&L.lnPos&&L.lnPos[key];
+  if(!l||!pos||inputMode||view!=='score'){flnBar.hidden=true;return}
+  const svg=pagesEl.querySelector(`svg.page[data-p="${pos.page}"]`);if(!svg){flnBar.hidden=true;return}
+  const sr=svg.getBoundingClientRect(),cr=canvasEl.getBoundingClientRect(),k=sr.width/PAGE_W,F=pos.F;
+  flnBar.hidden=false;const bh=flnBar.offsetHeight||40,bw=flnBar.offsetWidth||560;
+  let left=sr.left-cr.left+canvasEl.scrollLeft+(F.x+F.w/2)*k-bw/2,top=sr.top-cr.top+canvasEl.scrollTop+(F.y-1.6)*k-bh-6;
+  if(top<canvasEl.scrollTop+4)top=sr.top-cr.top+canvasEl.scrollTop+(F.y+1.6)*k+8;
+  left=Math.max(canvasEl.scrollLeft+6,Math.min(left,canvasEl.scrollLeft+canvasEl.clientWidth-bw-6));
+  flnBar.style.left=left+'px';flnBar.style.top=top+'px';
+  $('#flColor').value=l.c||'#555555';$('#flTh').textContent=['','보통','굵게','아주 굵게'][l.th||1];
+  if(document.activeElement!==$('#flTitle'))$('#flTitle').value=l.t||'';
+  flnBar.querySelectorAll('button[data-fl]').forEach(b=>{const f=b.dataset.fl;if(f==='st')b.setAttribute('aria-pressed',(l.st||'dash')===b.dataset.v);else if(f==='al'){b.setAttribute('aria-pressed',l.al==='c');b.disabled=!l.t}
+    else if(f==='thd')b.disabled=(l.th||1)<=1;else if(f==='thu')b.disabled=(l.th||1)>=3})}
+function flSet(fn){const l=flOf(flSelKey());if(!l)return;commit(()=>fn(l))}
+flnBar.addEventListener('pointerdown',e=>{e.stopPropagation();if(e.target.closest('button'))e.preventDefault()});
+['click','dblclick','mousedown'].forEach(t=>flnBar.addEventListener(t,e=>e.stopPropagation()));
+flnBar.addEventListener('click',e=>{const b=e.target.closest('button[data-fl]');if(!b)return;const f=b.dataset.fl;
+  if(f==='del'){deleteEl(flSelKey());return}
+  if(f==='st')flSet(l=>{if(b.dataset.v==='dash')delete l.st;else l.st=b.dataset.v});
+  else if(f==='thu')flSet(l=>{l.th=Math.min(3,(l.th||1)+1)});else if(f==='thd')flSet(l=>{const t=Math.max(1,(l.th||1)-1);if(t===1)delete l.th;else l.th=t});
+  else if(f==='al')flSet(l=>{if(l.al==='c')delete l.al;else l.al='c'});
+  else if(f==='full')flSet(l=>{l.x=MARGIN/PAGE_W;l.w=CONTENT_W/PAGE_W})});
+$('#flColor').addEventListener('input',e=>{const v=e.target.value;flSet(l=>{if(v.toLowerCase()==='#555555')delete l.c;else l.c=v})});
+$('#flTitle').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'||e.key==='Escape'){e.preventDefault();e.target.blur()}});
+$('#flTitle').addEventListener('change',e=>{const v=str(e.target.value).trim().slice(0,40);flSet(l=>{if(v)l.t=v;else{delete l.t;delete l.al}})});
 function positionFtxBar(){
   const key=ftxSelKey(),tx=ftxOf(key),pos=key&&L.txtPos&&L.txtPos[key];
   if(!tx||!pos||inputMode||view!=='score'){ftxBar.hidden=true;return}
