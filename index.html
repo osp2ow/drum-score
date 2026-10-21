@@ -3955,7 +3955,12 @@ function pasteMeasures(json){
     const keep=score.measures[mi];if(keep.ts)c.ts=keep.ts;else delete c.ts;if(keep.gapA)c.gapA=keep.gapA;else delete c.gapA;
     // page / line breaks belong to where the measure sits on the page, not to its music: the target keeps its own
     for(const k of ['pageBreak','lineBreak','lineN']){if(keep[k]!=null)c[k]=keep[k];else delete c[k]}
+    // the part name (Intro, A, Verse…) marks a place in the song, not the music: the target keeps its own
+    c.section=keep.section||'';{const so=keep.off&&keep.off.sec;if(c.off)delete c.off.sec;if(so){c.off=c.off||{};c.off.sec=so}if(c.off&&!Object.keys(c.off).length)delete c.off}
+    if(c.autoDbl){delete c.barEnd;delete c.autoDbl}
     score.measures[mi]=c});
+    // the thin double barline that comes before a part name follows the target's part names
+    for(let k=0;k<arr.length;k++){const mi=start+k,c=score.measures[mi],nx=score.measures[mi+1];if(c&&nx&&nx.section&&!c.repeatEnd&&c.barEnd!=='double'){c.barEnd='double';c.autoDbl=true}}
     sel={type:arr.length>1?'range':'measure',m:start,a:start,b:start+arr.length-1,anchor:start};if(arr.length===1)sel={type:'measure',m:start}});
   toast(arr.length>1?`마디 ${start+1}–${start+arr.length}에 붙여넣었어요`:`마디 ${start+1}에 붙여넣었어요`);
 }
