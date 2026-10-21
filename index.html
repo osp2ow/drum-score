@@ -423,7 +423,7 @@ table.grid{border-collapse:collapse;font-size:11px;min-width:100%}
           <div class="keys-ref">
             <kbd>g a b</kbd><span>하이햇 · 스네어 · 킥</span>
             <kbd>s d f</kbd><span>하이탐 · 미들탐 · 플로어탐</span>
-            <kbd>c r</kbd><span>심벌 · 라이드</span>
+            <kbd>c r e</kbd><span>심벌 · 라이드 · 라이드 벨 (다이아몬드)</span>
             <kbd>o x p</kbd><span>오픈 하이햇 · 크로스스틱 · 하이햇 페달</span>
             <kbd>7 6 5 4</kbd><span>온음표 · 2분 · 4분 · 8분</span>
             <kbd>3 2 1</kbd><span>16분 · 32분 · 64분</span>
@@ -581,6 +581,7 @@ const TS_ADV=[1.616,1.404,1.568,1.516,1.828,1.508,1.608,1.524,1.632,1.608];
 const INSTS=[
   {id:'ride',name:'라이드',step:11,head:'x',v:1,key:'r'},
   {id:'crash',name:'심벌',step:10,head:'cs',v:1,key:'c'},
+  {id:'bell',name:'라이드 벨',step:10,head:'dia',v:1,key:'e'},
   {id:'hho',name:'오픈 하이햇',step:9,head:'x',v:1,key:'o'},
   {id:'hh',name:'하이햇',step:9,head:'x',v:1,key:'h',alt:'g'},
   {id:'tom1',name:'하이탐',step:7,head:'n',v:1,key:'s'},
@@ -592,14 +593,14 @@ const INSTS=[
   {id:'hhp',name:'하이햇 페달',step:-1,head:'x',v:2,key:'p'},
 ];
 const INST=Object.fromEntries(INSTS.map(i=>[i.id,i]));
-const PAD_ORDER=['hh','snare','kick','tom1','tom2','ftom','crash','ride','hho','xstick','hhp'];
+const PAD_ORDER=['hh','snare','kick','tom1','tom2','ftom','crash','ride','bell','hho','xstick','hhp'];
 const EMPTY_V={mrest:true,items:[],groups:[],tuplets:[]};
 const vOf=i=>score.voices===2?INST[i].v:1;
-const UP_ORDER=['hhp','kick','ftom','snare','xstick','tom2','tom1','hh','hho','crash','ride'];
+const UP_ORDER=['hhp','kick','ftom','snare','xstick','tom2','tom1','hh','hho','crash','bell','ride'];
 const STEP_DEFAULT={11:'ride',10:'crash',9:'hh',7:'tom1',6:'tom2',5:'snare',3:'ftom',1:'kick','-1':'hhp'};
 const TS_LIST=[[2,4],[3,4],[4,4],[5,4],[6,8],[12,8]];
 const ALIAS={bd:'kick',bass:'kick',bassdrum:'kick',kick:'kick',kickdrum:'kick',sn:'snare',sd:'snare',snare:'snare',snaredrum:'snare',
-  hh:'hh',hihat:'hh',hhc:'hh',closedhh:'hh',closedhihat:'hh',hho:'hho',oh:'hho',openhh:'hho',openhihat:'hho',ride:'ride',rd:'ride',ridebell:'ride',
+  hh:'hh',hihat:'hh',hhc:'hh',closedhh:'hh',closedhihat:'hh',hho:'hho',oh:'hho',openhh:'hho',openhihat:'hho',ride:'ride',rd:'ride',ridebell:'bell',bell:'bell',rb:'bell',
   crash:'crash',cr:'crash',cymbal:'crash',china:'crash',splash:'crash',tom1:'tom1',hightom:'tom1',ht:'tom1',hitom:'tom1',tom2:'tom2',midtom:'tom2',mt:'tom2',
   ftom:'ftom',floortom:'ftom',ft:'ftom',tom3:'ftom',lowtom:'ftom',xstick:'xstick',crossstick:'xstick',sidestick:'xstick',rimclick:'xstick',
   hhp:'hhp',pedal:'hhp',hhpedal:'hhp',hihatpedal:'hhp',foothh:'hhp'};
@@ -1491,6 +1492,8 @@ function headMarkup(ins,hx,y,fl,cls,fs){
     const d=[90,30,150].map(deg=>{const t=deg*Math.PI/180,dx=Math.cos(t)*a,dy=Math.sin(t)*a;return `M${r(cx-dx)} ${r(y-dy)}L${r(cx+dx)} ${r(y+dy)}`}).join('');
     return `<circle class="ln${sc}" cx="${c}" cy="${cy}" r="${r(rr)}" fill="none" stroke-width="${r(0.13*k)}"/><path class="ln${sc}" d="${d}" stroke-width="${r(0.12*k)}"/>`;
   }
+  if(ins.head==='dia'){const k=fs?fs/4:1,cx=hx+HEAD_W/2,hw=HEAD_W/2*0.92*k,hh=0.5*k,sc=cls?' self':'';
+    return `<path class="fl${sc}" d="M${r(cx-hw)} ${r(y)}L${r(cx)} ${r(y-hh)}L${r(cx+hw)} ${r(y)}L${r(cx)} ${r(y+hh)}Z"/>`}
   const ch=ins.head==='x'?G.headX:ins.head==='cx'?G.headCX:fl<=-2?G.headWhole:fl===-1?G.headHalf:G.headBlack;
   return glyph(hx,y,ch,cls,fs);
 }
@@ -1590,7 +1593,7 @@ function drawTuplet(tp,vl,up,top){
   let o=line(x1,yb+hk,x1,yb,0.1)+line(x1,yb,xm-0.75,yb,0.1)+line(xm+0.75,yb,x2,yb,0.1)+line(x2,yb,x2,yb+hk,0.1);
   return o+`<text class="mu sm" x="${r(xm-0.45)}" y="${r(yb+0.58)}">${ch}</text>`;
 }
-const SVG_RULES=`.mu{font-family:'Leland';font-size:4px;fill:var(--paper-ink)}.mu.sm{font-size:3.2px}.mu.sel{fill:var(--sel)}.selst{stroke:var(--sel)}
+const SVG_RULES=`.mu{font-family:'Leland';font-size:4px;fill:var(--paper-ink)}.mu.sm{font-size:3.2px}.mu.sel{fill:var(--sel)}.selst{stroke:var(--sel)}.fl.self{fill:var(--sel)}
 .ln{stroke:var(--paper-ink)}.fl{fill:var(--paper-ink)}.tx{font-family:var(--score);fill:var(--paper-ink)}
 .t-num{font-size:1.6px}.t-inst{font-size:1.9px}.tx.ph{fill:#a3a7ae;font-style:italic}`;
 function exportCss(){return `@font-face{font-family:'Leland';src:url(data:font/woff;base64,${LELAND_B64}) format('woff')}
@@ -1863,7 +1866,7 @@ function validateSel(){
   else if(sel.type==='measure'){sel.m=Math.min(sel.m,N-1)}
   else if(sel.type==='range'){sel.b=Math.min(sel.b,N-1);sel.a=Math.min(sel.a,sel.b);sel.m=sel.a}
 }
-const NAV_GROUP={hh:'cym',hho:'cym',ride:'cym',crash:'cym',snare:'sn',xstick:'sn',tom1:'sn',tom2:'sn',ftom:'sn',kick:'ft',hhp:'ft'};
+const NAV_GROUP={hh:'cym',hho:'cym',ride:'cym',bell:'cym',crash:'cym',snare:'sn',xstick:'sn',tom1:'sn',tom2:'sn',ftom:'sn',kick:'ft',hhp:'ft'};
 function orderedNotes(){
   const out=[];
   score.measures.forEach((m,mi)=>{if(m.simile)return;m.notes.forEach(n=>out.push({mi,n,t:n.b+n.s/m.divs[n.b]}))});
@@ -3282,6 +3285,7 @@ function playDrum(inst,when,vel=1){
     hh:()=>noise('highpass',7500,0.8,0.05,0.45),hho:()=>noise('highpass',6800,0.7,0.38,0.4),hhp:()=>noise('highpass',6000,0.9,0.035,0.3),
     crash:()=>{noise('highpass',5000,0.5,1.3,0.45);noise('bandpass',8000,0.8,0.9,0.25)},
     ride:()=>{noise('highpass',6500,0.6,0.55,0.25);tone(5200,5000,0.4,0.05)},
+    bell:()=>{tone(2350,2300,0.9,0.22);tone(3520,3500,0.6,0.08);noise('highpass',7000,0.7,0.25,0.12)},
     xstick:()=>{noise('bandpass',2600,4,0.04,0.8);tone(900,700,0.04,0.25)}})[inst]?.();
 }
 function recClick(when,acc){
@@ -3786,7 +3790,7 @@ How to read the 5-line percussion staff (standard drum-kit notation; "line 1" is
 - normal notehead in the space between lines 3 and 4: snare -> "snare"; an x or circled x in that space: cross stick -> "xstick"
 - normal notehead on line 4: mid tom -> "tom2"
 - normal notehead in the space between lines 4 and 5: high tom -> "tom1"
-- x notehead sitting on the space above the first ledger line (a short line under the x), or an x on line 5: ride -> "ride" (a diamond is the ride bell, also "ride")
+- x notehead sitting on the space above the first ledger line (a short line under the x), or an x on line 5: ride -> "ride" (a DIAMOND notehead is the ride bell -> "bell"; it usually sits on the first ledger line above the staff)
 - x notehead in the space just above line 5: hi-hat -> "hh"; with a small "o" above it: open hi-hat -> "hho" ("+" means closed -> "hh" with "cl": 1)
 - x, circled x or circled star notehead ON the first ledger line above the staff: crash cymbal -> "crash"
 If the sheet has its own instrument legend that differs, follow the legend.
