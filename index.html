@@ -2834,7 +2834,7 @@ document.addEventListener('keydown',e=>{
   // Ctrl+number with a measure selected: that many measures on this line (Ctrl+3 stays the triplet key for notes / input mode)
   if(ctrl&&!e.shiftKey&&digit>=1&&digit<=9&&!inputMode&&sel&&(sel.type==='measure'||sel.type==='range')){e.preventDefault();setLineN(sel.m,digit);return}
   if(ctrl&&digit===3){e.preventDefault();inputTrip=!inputTrip;renderChrome();return}
-  if(ctrl&&letter==='c'){if(sel&&(sel.type==='span'||sel.type==='note')){const q=selPoint();if(q)copySpan(q.g,q.g+q.len)}else if(sel){copyMeasures()}return}
+  if(ctrl&&letter==='c'){if(sel&&sel.type==='el'&&sel.key.startsWith('sec:')){copySection(+sel.key.slice(4));return}if(sel&&(sel.type==='span'||sel.type==='note')){const q=selPoint();if(q)copySpan(q.g,q.g+q.len)}else if(sel){copyMeasures()}return}
   if(ctrl&&(k==='ArrowLeft'||k==='ArrowRight')&&sel&&(sel.type==='note'||sel.type==='rest')){e.preventDefault();const d=(k==='ArrowRight'?1:-1)*(e.shiftKey?1:0.25);
     if(sel.type==='note'){const f=findNote(sel.id);if(f)setDx('note',f.m,sel.id,curDx('note',f.m,sel.id)+d)}else setDx('rest',sel.m,sel.t,curDx('rest',sel.m,sel.t)+d);return}
   if(ctrl&&(k==='ArrowUp'||k==='ArrowDown')&&sel&&sel.type!=='el'&&sel.m!=null){e.preventDefault();const sys=L.systems.find(s=>s.ms.includes(sel.m));if(sys)setLineN(sel.m,k==='ArrowUp'?sys.ms.length+1:Math.max(1,sys.ms.length-1));return}
@@ -3942,7 +3942,7 @@ function copyMeasures(){
 }
 document.addEventListener('copy',e=>{
   if(!copyPending||!e.clipboardData)return;
-  const cp=JSON.parse(copyPending),n=cp.span?'span':'x'+cp.length;
+  const cp=JSON.parse(copyPending),n=cp.sec!=null?'sec':cp.span?'span':'x'+cp.length;
   try{e.clipboardData.setData('text/plain',CLIP_LABEL+' '+n);e.clipboardData.setData(CLIP_MIME,copyPending);e.preventDefault();copyPending=null}catch(err){}
 });
 function pasteMeasures(json){
@@ -3980,7 +3980,16 @@ document.addEventListener('paste',e=>{
   if(/"measures"\s*:/.test(txt)){e.preventDefault();applyManual(txt);return}
   if(view==='score'&&clipMeasure&&sel){e.preventDefault();pasteClip(clipMeasure)}
 });
-function pasteClip(json){let c;try{c=JSON.parse(json)}catch(err){return}if(c&&c.span)pasteSpan(c);else pasteMeasures(json)}
+function pasteClip(json){let c;try{c=JSON.parse(json)}catch(err){return}if(c&&c.sec!=null)pasteSection(c.sec);else if(c&&c.span)pasteSpan(c);else pasteMeasures(json)}
+// a part name on its own: Ctrl+C on the selected part name, then pick measures and Ctrl+V
+function copySection(mi){const m=score.measures[mi];if(!m||!m.section)return;
+  clipMeasure=JSON.stringify({sec:m.section});copyPending=clipMeasure;
+  setTimeout(()=>{if(copyPending){copyPending=null;try{navigator.clipboard.writeText(CLIP_LABEL+' sec').catch(()=>{})}catch(err){}}},60);
+  toast(`파트 표기 “${m.section}”을 복사했어요 · 넣을 마디를 누르고 Ctrl+V`)}
+function pasteSection(name){if(!sel)return;
+  const ms=sel.type==='range'?Array.from({length:sel.b-sel.a+1},(_,k)=>sel.a+k):[sel.m].filter(x=>x!=null);if(!ms.length)return;
+  commit(()=>{for(const mi of ms)if(score.measures[mi])sectionOn(mi,name)});
+  select({type:'el',key:'sec:'+ms[0],m:ms[0]});toast(ms.length>1?`마디 ${ms[0]+1}–${ms[ms.length-1]+1}에 “${name}”을 붙였어요`:`마디 ${ms[0]+1}에 “${name}”을 붙였어요`)}
 let dragDepth=0;
 document.addEventListener('dragenter',e=>{if([...e.dataTransfer.types].includes('Files')){dragDepth++;$('#dropVeil').hidden=false}});
 document.addEventListener('dragleave',()=>{dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('#dropVeil').hidden=true});
