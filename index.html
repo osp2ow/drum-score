@@ -3603,16 +3603,38 @@ function findRepeats(px,W,H,st){
 }
 // 5 evenly spaced dark rows are a staff only when they look like one: thin lines, light paper between them, and a long
 // stretch where all five lines run side by side (dark video areas, stage lights or a logo give thick bands or no shared stretch)
+// ink map in one of several looks: black notes (dark or light grey lines) or a white-on-black score
+const INK_MODES=[{thr:120},{thr:170},{rel:38},{inv:true,thr:135}];
+function inkMap(px,W,H,mode){const dk=new Uint8Array(W*H),t=mode.thr;
+  if(mode.rel){const R=24,N=W*H,bri=new Uint8Array(N),bg=new Uint8Array(N);
+    for(let k=0;k<N;k++)bri[k]=Math.max(px[k*4],px[k*4+1],px[k*4+2]);
+    // the paper level around each pixel: the brightest pixel within R along its row or its column (a long line is dark
+    // along its own row, so the column finds the paper above and below it, and the other way round for barlines)
+    const smax=(get,len,set)=>{const dq=new Int32Array(len);let h=0,t=0,nx=0;for(let x=0;x<len;x++){const add=Math.min(len-1,x+R);while(nx<=add){const v=get(nx);while(t>h&&get(dq[t-1])<=v)t--;dq[t++]=nx;nx++}while(dq[h]<x-R)h++;set(x,get(dq[h]))}};
+    for(let y=0;y<H;y++){const o=y*W;smax(x=>bri[o+x],W,(x,v)=>{bg[o+x]=v})}
+    for(let x=0;x<W;x++)smax(y=>bri[y*W+x],H,(y,v)=>{const k=y*W+x;if(v>bg[k])bg[k]=v});
+    for(let k=0;k<N;k++){const r=px[k*4],g=px[k*4+1],b=px[k*4+2];dk[k]=(bg[k]>150&&bri[k]<bg[k]-mode.rel&&Math.abs(r-g)<60&&Math.abs(g-b)<60)?1:0}
+    return dk}
+  for(let i=0;i<W*H;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2],grey=Math.abs(r-g)<60&&Math.abs(g-b)<60;dk[i]=grey&&(mode.inv?Math.min(r,g,b)>t:Math.max(r,g,b)<t)?1:0}return dk}
+// per row: the longest stretch of ink (small breaks allowed), as a share of the width; a score that fills only part
+// of the video frame still has staff lines running most of its own width
+function rowRuns(dk,W,H){const rows=new Float32Array(H);
+  for(let y=0;y<H;y++){const o=y*W;let best=0,cur=0,gap=0;for(let x=0;x<W;x++){if(dk[o+x]){cur+=gap+1;gap=0;if(cur>best)best=cur}else if(cur&&gap<3)gap++;else{cur=0;gap=0}}rows[y]=best/W}
+  return rows}
+function detectStaves(px,W,H,pref){const modes=pref?[pref,...INK_MODES.filter(m=>m!==pref)]:INK_MODES;
+  for(const mode of modes){const dk=inkMap(px,W,H,mode),st=staffRuns(dk,W,H,rowRuns(dk,W,H));if(st.length)return {st,dk,mode}}
+  return {st:[],dk:inkMap(px,W,H,pref||INK_MODES[0]),mode:pref||INK_MODES[0]}}
 function staffRuns(dk,W,H,rows){
-  const runs=[];for(let y=0;y<H;y++){if(rows[y]<0.42)continue;let e=y;while(e+1<H&&rows[e+1]>=0.42)e++;runs.push({c:(y+e)/2,a:y,b:e});y=e}
+  const runs=[];for(let y=0;y<H;y++){if(rows[y]<0.25)continue;let e=y;while(e+1<H&&rows[e+1]>=0.25)e++;runs.push({c:(y+e)/2,a:y,b:e});y=e}
   const out=[];
   for(let i=0;i+4<runs.length;){const L=runs.slice(i,i+5),g=[1,2,3,4].map(k=>L[k].c-L[k-1].c),avg=g.reduce((a,b)=>a+b)/4;
     let ok=avg>=3&&g.every(v=>Math.abs(v-avg)<=Math.max(1.6,avg*0.28))&&L.every(r=>r.b-r.a+1<=Math.max(3,avg*0.35));
+    let xa=-1,xb=-1;
     if(ok){let shared=0;const mids=[0,1,2,3].map(k=>Math.round((L[k].c+L[k+1].c)/2));
       for(let x=0;x<W;x++){let on=true;for(const r of L){let d=0;for(let y=r.a-1;y<=r.b+1;y++)if(y>=0&&y<H&&dk[y*W+x]){d=1;break}if(!d){on=false;break}}
-        if(!on)continue;let light=0;for(const m of mids)if(!dk[m*W+x])light++;if(light>=3)shared++}
-      ok=shared>=W*0.3}
-    if(ok){out.push({y0:L[0].c,y4:L[4].c,sp:avg});i+=5}else i++}
+        if(!on)continue;let light=0;for(const m of mids)if(!dk[m*W+x])light++;if(light>=3){shared++;if(xa<0)xa=x;xb=x}}
+      ok=shared>=W*0.2}
+    if(ok){out.push({y0:L[0].c,y4:L[4].c,sp:avg,xa,xb});i+=5}else i++}
   return out}
 /* ---------- capture: cut the image into small pieces (2 measures each) so every note is big enough to read ---------- */
 // finds the 5-line staves and the barlines; returns [{blob, measures, w, h}] or null when it can't tell
@@ -3626,12 +3648,10 @@ async function splitScoreImage(file){
       for(let y=0;y<H;y++){for(let x=0;x<W;x++){if(!isG((y*W+x)*4))continue;let e=x;while(e+1<W&&isG((y*W+e+1)*4))e++;
         if(e-x<=14){const L1=x>0?(y*W+x-1)*4:-1,R1=e<W-1?(y*W+e+1)*4:-1;for(let k=x;k<=e;k++){const i=(y*W+k)*4;for(let c=0;c<3;c++)q[i+c]=L1>=0&&R1>=0?Math.min(q[L1+c],q[R1+c]):L1>=0?q[L1+c]:R1>=0?q[R1+c]:255}hit++}x=e}}
       if(hit)ctx.putImageData(im,0,0)}
-    const px=ctx.getImageData(0,0,W,H).data,dk=new Uint8Array(W*H);
-    for(let i=0;i<W*H;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2];dk[i]=(Math.max(r,g,b)<120&&Math.abs(r-g)<60&&Math.abs(g-b)<60)?1:0}
-    // staff lines: rows that are dark across much of the width
-    const rows=[];for(let y=0;y<H;y++){let n=0;const o=y*W;for(let x=0;x<W;x++)n+=dk[o+x];rows.push(n/W)}
-    const staves=staffRuns(dk,W,H,rows);
-    if(!staves.length)return null;
+    let px=ctx.getImageData(0,0,W,H).data;
+    const D=detectStaves(px,W,H);if(!D.st.length)return null;
+    if(D.mode.inv){const im=ctx.getImageData(0,0,W,H),q=im.data;for(let i=0;i<q.length;i+=4){q[i]=255-q[i];q[i+1]=255-q[i+1];q[i+2]=255-q[i+2]}ctx.putImageData(im,0,0);px=q}
+    const dk=D.dk,staves=D.st;
     const parts=[];
     staves.forEach((st,si)=>{
       const {y0,y4,sp}=st,top=Math.round(Math.max(si?((staves[si-1].y4+y0)/2):0,y0-8*sp)),bot=Math.round(Math.min(si<staves.length-1?((y4+staves[si+1].y0)/2):H,y4+7.5*sp));
@@ -3674,11 +3694,7 @@ async function splitScoreImage(file){
 const videoChains={};
 function runVideo(file,sid){videoChains[sid]=(videoChains[sid]||Promise.resolve()).then(()=>analyzeVideo(file,sid)).catch(()=>{})}
 // the 5-line staves in a frame (same rules as the capture cutter)
-function findStaves(dk,W,H){
-  const rows=[];for(let y=0;y<H;y++){let n=0;const o=y*W;for(let x=0;x<W;x++)n+=dk[o+x];rows.push(n/W)}
-  const st=staffRuns(dk,W,H,rows);
-  return st;
-}
+function findStaves(dk,W,H){return staffRuns(dk,W,H,rowRuns(dk,W,H))}
 function darkMap(px,W,H){const dk=new Uint8Array(W*H);for(let i=0;i<W*H;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2];dk[i]=(Math.max(r,g,b)<120&&Math.abs(r-g)<60&&Math.abs(g-b)<60)?1:0}return dk}
 // a coarse black/white fingerprint of one line (measure number, notes and words included, coloured playheads ignored)
 function lineSig(dk,W,y0,y1){const GW=160,GH=36,h=y1-y0,sig=new Uint8Array(GW*GH);
@@ -3694,8 +3710,8 @@ function gridSig(dk,W,H,x0,x1,y0,y1,nx,ny){const g=new Uint8Array(nx*ny),cw=(x1-
   g.nx=nx;return g}
 // the measure number at the start of the line, cut to its own outline and redrawn on a small grid: lines with the same
 // groove differ only here ("13" and "17"), so this one is compared exactly rather than loosely
-function numSig(dk,W,H,st){const sp=st.sp,ym=Math.round(st.y0);let xs=0;
-  for(let x=0;x<W;x++){let run=0;while(x+run<W&&(dk[ym*W+x+run]||(ym+1<H&&dk[(ym+1)*W+x+run])))run++;if(run>sp*2){xs=x;break}x+=run}
+function numSig(dk,W,H,st){const sp=st.sp,ym=Math.round(st.y0);let xs=st.xa>0?st.xa:0;
+  for(let x=Math.max(0,(st.xa||0)-Math.round(sp*2));x<W;x++){let run=0;while(x+run<W&&(dk[ym*W+x+run]||(ym+1<H&&dk[(ym+1)*W+x+run])))run++;if(run>sp*2){xs=x;break}x+=run}
   const x0=Math.max(0,Math.round(xs-sp)),x1=Math.min(W,Math.round(xs+4.6*sp)),y0=Math.max(0,Math.round(st.y0-4.6*sp)),y1=Math.max(0,Math.round(st.y0-0.45*sp));
   let bx0=1e9,bx1=-1,by0=1e9,by1=-1;for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)if(dk[y*W+x]){if(x<bx0)bx0=x;if(x>bx1)bx1=x;if(y<by0)by0=y;if(y>by1)by1=y}
   const NX=20,NY=12,g=new Uint8Array(NX*NY);g.nx=NX;if(bx1<0||by1-by0<sp*0.5){g.empty=true;return g}
@@ -3703,9 +3719,9 @@ function numSig(dk,W,H,st){const sp=st.sp,ym=Math.round(st.y0);let xs=0;
   for(let gy=0;gy<NY;gy++)for(let gx=0;gx<NX;gx++){let n=0,t=0;for(let y=Math.floor(by0+gy*ch);y<Math.max(Math.floor(by0+gy*ch)+1,Math.floor(by0+(gy+1)*ch));y++)for(let x=Math.floor(bx0+gx*cw);x<Math.max(Math.floor(bx0+gx*cw)+1,Math.floor(bx0+(gx+1)*cw));x++){n+=dk[y*W+x];t++}g[gy*NX+gx]=t&&n/t>0.35?1:0}
   g.w=(bx1-bx0)/sp;return g}
 function numDiff(a,b){if(a.empty||b.empty)return a.empty&&b.empty?0:1;if(Math.abs(a.w-b.w)>0.6)return 1;return sigDiff(a,b)}
-function detailSig(dk,W,H,st){const sp=st.sp;
+function detailSig(dk,W,H,st,fx0=0,fx1=W){const sp=st.sp;
   // the measure number (top left) and the words under the line: where repeated grooves still differ
-  const a=gridSig(dk,W,H,0,sp*12,st.y0-4.5*sp,st.y0-0.4*sp,60,21),b=gridSig(dk,W,H,0,W,st.y4+1.6*sp,st.y4+6*sp,240,12);
+  const a=gridSig(dk,W,H,fx0,fx0+sp*12,st.y0-4.5*sp,st.y0-0.4*sp,60,21),b=gridSig(dk,W,H,fx0,fx1,st.y4+1.6*sp,st.y4+6*sp,240,12);
   return {a,b,n:numSig(dk,W,H,st)}}
 // share of marks that have nothing near them in the other grid (one cell of slack each way)
 function tolDiff(a,b){const nx=a.nx,ny=a.length/nx;let d=0,on=0;
@@ -3731,22 +3747,28 @@ async function analyzeVideo(file,sid){
   const accepted=[];let prev=[],lines=0;const step=0.5;
   // each new line is kept open for a few more samples and those frames are averaged: video compression noise
   // around the noteheads mostly cancels out, so kick / snare / toms are much easier to tell apart
+  let vmode=null;
   const cols=[],MAXF=5,same=(a,b)=>tolDiff(a.g,b.g)<0.015&&numDiff(a.d.n,b.d.n)<0.2&&tolDiff(a.d.a,b.d.a)<0.03&&tolDiff(a.d.b,b.d.b)<0.04;
-  const addFrame=(col,px,y0)=>{const base=Math.round(y0)+col.dy;for(let y=0;y<col.h;y++){const sy=base+y;if(sy<0||sy>=H)continue;const so=sy*W*4,d=y*W*4;for(let i=0;i<W*4;i++)col.acc[d+i]+=px[so+i]}col.n++};
+  const addFrame=(col,px,y0)=>{const base=Math.round(y0)+col.dy,cw=col.w;for(let y=0;y<col.h;y++){const sy=base+y;if(sy<0||sy>=H)continue;const so=(sy*W+col.x0)*4,d=y*cw*4;for(let i=0;i<cw*4;i++)col.acc[d+i]+=px[so+i]}col.n++};
   const flush=async all=>{while(cols.length&&(cols[0].done||all)){const col=cols.shift();
-    const im=new ImageData(W,col.h),q=im.data;for(let i=0;i<q.length;i++)q[i]=col.acc[i]/col.n;for(let i=3;i<q.length;i+=4)q[i]=255;
-    const cc=document.createElement('canvas');cc.width=W;cc.height=col.h;cc.getContext('2d').putImageData(im,0,0);
+    const im=new ImageData(col.w,col.h),q=im.data;for(let i=0;i<q.length;i++)q[i]=col.inv?255-col.acc[i]/col.n:col.acc[i]/col.n;for(let i=3;i<q.length;i+=4)q[i]=255;
+    // pale or greyish scores: stretch so the paper is white and the ink is black
+    {const hist=new Uint32Array(256);for(let i=0;i<q.length;i+=4)hist[Math.max(q[i],q[i+1],q[i+2])]++;const tot=q.length/4;let lo=0,hi=255,c=0;
+      for(let v=0;v<256;v++){c+=hist[v];if(c>=tot*0.01){lo=v;break}}c=0;for(let v=255;v>=0;v--){c+=hist[v];if(c>=tot*0.25){hi=v;break}}
+      if(hi-lo>25&&(lo>40||hi<235)){const k=255/(hi-lo);for(let i=0;i<q.length;i+=4)for(let j=0;j<3;j++)q[i+j]=Math.max(0,Math.min(255,(q[i+j]-lo)*k))}}
+    const cc=document.createElement('canvas');cc.width=col.w;cc.height=col.h;cc.getContext('2d').putImageData(im,0,0);
     const b=await new Promise(r=>cc.toBlob(r,'image/png'));if(!b)continue;
     enqueue([new File([b],`영상 ${Math.floor(col.t/60)}분${String(Math.floor(col.t%60)).padStart(2,'0')}초.png`,{type:'image/png'})],{sid:job.sid,vid:job.id})}};
   for(let t=0.1;t<dur;t+=step){
     if(job.stop){if(!job.stopAll)await flush(true);done(job.stopAll?'영상 변환을 멈췄어요':`영상 분석을 멈췄어요 · 여기까지 ${lines}줄을 변환해요`);return}
     while(job.sid!==score.id&&!job.stop){if(job.gone){URL.revokeObjectURL(url);return}job.msg='다른 악보를 보는 동안 잠시 멈췄어요 · 이 악보로 돌아오면 이어서 해요';await new Promise(r=>setTimeout(r,500))}
     await seek(t);ctx.drawImage(v,0,0,W,H);
-    const px=ctx.getImageData(0,0,W,H).data;wipePlayhead(px,W,H);const dk=darkMap(px,W,H),staves=findStaves(dk,W,H),now=[];
+    const px=ctx.getImageData(0,0,W,H).data;wipePlayhead(px,W,H);const DS=detectStaves(px,W,H,vmode);if(DS.st.length)vmode=DS.mode;const dk=DS.dk,staves=DS.st,now=[];
     const seen=new Set();
     staves.forEach((st,si)=>{
       const top=Math.round(Math.max(si?((staves[si-1].y4+st.y0)/2):0,st.y0-8*st.sp)),bot=Math.round(Math.min(si<staves.length-1?((st.y4+staves[si+1].y0)/2):H,st.y4+7.5*st.sp));
-      const sig={g:gridSig(dk,W,H,0,W,st.y0-4*st.sp,st.y4+6*st.sp,200,42),d:detailSig(dk,W,H,st)};now.push(sig);
+      const fx0=Math.max(0,st.xa-4*st.sp),fx1=Math.min(W,st.xb+2*st.sp);
+      const sig={g:gridSig(dk,W,H,fx0,fx1,st.y0-4*st.sp,st.y4+6*st.sp,200,42),d:detailSig(dk,W,H,st,fx0,fx1)};now.push(sig);
       // the same line is still on screen: one more frame for its average
       const open=cols.find(c=>!c.done&&!seen.has(c)&&same(c.sig,sig));
       if(open){seen.add(open);if(open.n<MAXF)addFrame(open,px,st.y0);return}
@@ -3755,7 +3777,8 @@ async function analyzeVideo(file,sid){
       if(!prev.some(p=>same(p,sig)))return;
       if(accepted.slice(-Math.max(1,staves.length)).some(a=>same(a,sig)))return;
       accepted.push(sig);lines++;
-      const col={sig,t,dy:top-Math.round(st.y0),h:bot-top,acc:new Float32Array(W*(bot-top)*4),n:0,done:false};addFrame(col,px,st.y0);cols.push(col);seen.add(col);
+      const x0=Math.max(0,Math.round(st.xa-4*st.sp)),x1=Math.min(W,Math.round(st.xb+2*st.sp)),cw=x1-x0;
+      const col={sig,t,dy:top-Math.round(st.y0),h:bot-top,x0,w:cw,inv:!!(vmode&&vmode.inv),acc:new Float32Array(cw*(bot-top)*4),n:0,done:false};addFrame(col,px,st.y0);cols.push(col);seen.add(col);
     });
     for(const c of cols)if(!seen.has(c))c.done=true; // that line has left the screen
     await flush(false);
